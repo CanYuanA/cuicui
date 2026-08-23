@@ -5,7 +5,13 @@ if (!password) throw new Error('缺少 SITE_ACCESS_PASSWORD');
 const loginResponse = await fetch(`${baseUrl}/api/access/login`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }),
 });
-const accessCookie = (loginResponse.headers.get('set-cookie') || '').split(';')[0];
+const setCookieHeaders = typeof loginResponse.headers.getSetCookie === 'function'
+  ? loginResponse.headers.getSetCookie()
+  : [loginResponse.headers.get('set-cookie') || ''];
+const accessSetCookie = setCookieHeaders
+  .flatMap((header) => header.split(/,(?=\s*[^;,=\s]+=[^;,]*)/))
+  .find((header) => /^\s*cuicui_access=/.test(header));
+const accessCookie = (accessSetCookie || '').trim().split(';')[0];
 if (!loginResponse.ok || !accessCookie) throw new Error(`access login ${loginResponse.status}`);
 
 async function json(path, options = {}) {
