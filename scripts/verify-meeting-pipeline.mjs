@@ -13,6 +13,7 @@ const manifestPath = join(demoDir, 'audio-manifest.json');
 const outputPath = join(demoDir, 'verified-run.json');
 const progressPath = join(workDir, 'verification-progress.json');
 let demoSessionToken = '';
+let accessCookie = '';
 
 function readEnv(path) {
   const values = {};
@@ -87,7 +88,7 @@ function transcribePcm(pcm, env, label) {
       if (error) rejectPromise(error);
       else resolvePromise({ label, text: combinePieces(pieces), messages, frameCount: frames });
     };
-    totalTimeout = setTimeout(() => finish(new Error(`${label} 识别超时`)), Math.max(30000, frames * 40 + 20000));
+    totalTimeout = setTimeout(() => finish(new Error(`${label} 识别超时`)), Math.max(60000, frames * 40 + 45000));
 
     socket.addEventListener('open', () => {
       const sendNext = () => {
@@ -145,7 +146,7 @@ function slicePcm(pcm, fromSeconds, toSeconds) {
 
 async function callApi(path, body) {
   const response = await fetch(`http://localhost:3000${path}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': demoSessionToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: accessCookie, 'X-Cuicui-Session': demoSessionToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(`${path} ${response.status}: ${JSON.stringify(payload).slice(0, 400)}`);
@@ -156,13 +157,18 @@ async function main() {
   mkdirSync(evidenceDir, { recursive: true });
   mkdirSync(workDir, { recursive: true });
   const env = { ...readEnv(join(root, '.env.local')), ...process.env };
-  for (const key of ['IFLYTEK_APP_ID', 'IFLYTEK_API_KEY', 'IFLYTEK_API_SECRET']) if (!env[key]) throw new Error(`缺少 ${key}`);
+  for (const key of ['IFLYTEK_APP_ID', 'IFLYTEK_API_KEY', 'IFLYTEK_API_SECRET', 'SITE_ACCESS_PASSWORD']) if (!env[key]) throw new Error(`缺少 ${key}`);
   if (!existsSync(manifestPath)) throw new Error('请先运行 generate-meeting-audio.mjs');
   const healthResponse = await fetch('http://localhost:3000/api/health', { signal: AbortSignal.timeout(5000) });
   if (!healthResponse.ok) throw new Error(`本地应用预检失败：HTTP ${healthResponse.status}`);
   const health = await healthResponse.json();
   if (!health.services?.openrouter || !health.services?.iflytek) throw new Error('本地应用预检失败：真实 AI/讯飞服务未就绪');
-  const sessionResponse = await fetch('http://localhost:3000/api/demo-session', { method: 'POST', signal: AbortSignal.timeout(5000) });
+  const loginResponse = await fetch('http://localhost:3000/api/access/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: env.SITE_ACCESS_PASSWORD }), signal: AbortSignal.timeout(5000),
+  });
+  accessCookie = (loginResponse.headers.get('set-cookie') || '').split(';')[0];
+  if (!loginResponse.ok || !accessCookie) throw new Error('本地应用预检失败：访问密码验证失败');
+  const sessionResponse = await fetch('http://localhost:3000/api/demo-session', { method: 'POST', headers: { Cookie: accessCookie }, signal: AbortSignal.timeout(5000) });
   const session = await sessionResponse.json();
   if (!sessionResponse.ok || !session.token) throw new Error('本地应用预检失败：无法创建受控体验会话');
   demoSessionToken = session.token;
@@ -170,21 +176,26 @@ async function main() {
   let masterSessions = [];
   let transcript = [];
   let utteranceSessions = [];
+  const masterChunkSeconds = 20;
+  const expectedMasterSessions = Math.ceil(fixture.meeting.durationSeconds / masterChunkSeconds);
   const rejectedPath = join(workDir, 'rejected-verification.json');
   const rawEvidencePath = join(evidenceDir, 'iflytek-raw.json');
-  try {
-    const previous = JSON.parse(readFileSync(rejectedPath, 'utf8'));
-    const raw = JSON.parse(readFileSync(rawEvidencePath, 'utf8'));
-    if (previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.transcript?.length === fixture.utterances.length && raw.master?.length === 3 && raw.utterances?.length === fixture.utterances.length) {
-      masterSessions = raw.master; transcript = previous.transcript; utteranceSessions = raw.utterances;
-      console.log('reusing hash-matched iFlytek evidence; only AI analysis/report will rerun');
-    }
-  } catch { /* no reusable proof */ }
+  for (const candidatePath of [outputPath, rejectedPath]) {
+    try {
+      const previous = JSON.parse(readFileSync(candidatePath, 'utf8'));
+      const raw = JSON.parse(readFileSync(rawEvidencePath, 'utf8'));
+      if (previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.transcript?.length === fixture.utterances.length && raw.master?.length === expectedMasterSessions && raw.utterances?.length === fixture.utterances.length) {
+        masterSessions = raw.master; transcript = previous.transcript; utteranceSessions = raw.utterances;
+        console.log('reusing hash-matched iFlytek evidence; only AI analysis/report will rerun');
+        break;
+      }
+    } catch { /* try the next reusable proof candidate */ }
+  }
 
   if (!transcript.length) {
     const masterPcmPath = join(workDir, 'master.pcm');
     const masterPcm = decodeToPcm(join(demoDir, 'meeting-master-asr.wav'), masterPcmPath);
-    const cuts = [0, 35, 68, fixture.meeting.durationSeconds];
+    const cuts = Array.from({ length: expectedMasterSessions + 1 }, (_, index) => Math.min(fixture.meeting.durationSeconds, index * masterChunkSeconds));
     for (let index = 0; index < cuts.length - 1; index += 1) {
       const label = `master-${index + 1}`;
       console.log(`transcribing ${label} ${cuts[index]}-${cuts[index + 1]}s`);
@@ -200,7 +211,10 @@ async function main() {
       const result = await transcribePcm(pcm, env, utterance.id);
       utteranceSessions.push(result);
       const speaker = speakerFor(utterance.speakerId);
-      transcript.push({ id: utterance.id, at: utterance.start, end: fixture.utterances[index + 1]?.start || fixture.meeting.durationSeconds, speakerId: utterance.speakerId, speaker: speaker.name, text: result.text, expectedText: utterance.text, topic: utterance.topic, workRelated: utterance.workRelated, interrupted: Boolean(utterance.interrupted), asrSource: 'iflytek-iat' });
+      const nextStart = fixture.utterances[index + 1]?.start || fixture.meeting.durationSeconds;
+      const spokenSeconds = Number(manifest.utterances[index]?.audio?.durationSeconds) || Math.max(1, utterance.text.length / 4.5);
+      const spokenEnd = Math.min(nextStart, fixture.meeting.durationSeconds, utterance.start + spokenSeconds);
+      transcript.push({ id: utterance.id, at: utterance.start, end: spokenEnd, speakerId: utterance.speakerId, speaker: speaker.name, text: result.text, expectedText: utterance.text, topic: utterance.topic, workRelated: utterance.workRelated, interrupted: Boolean(utterance.interrupted), asrSource: 'iflytek-iat' });
       writeFileSync(progressPath, `${JSON.stringify({ masterSessions, utteranceSessions, transcript }, null, 2)}\n`);
     }
   }

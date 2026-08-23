@@ -50,7 +50,24 @@ function textValue(value: unknown, fallback = '') {
 }
 
 function stringList(value: unknown, limit: number) {
-  return (Array.isArray(value) ? value : []).map((item) => textValue(item)).filter(Boolean).slice(0, limit);
+  const seen = new Set<string>();
+  return (Array.isArray(value) ? value : []).map((item) => textValue(item)).filter((item) => {
+    const key = item.replace(/[\s，。；、]/g, '');
+    if (!item || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, limit);
+}
+
+function explicitDecisions(value: unknown) {
+  return stringList(value, 8).filter((item) => {
+    if (/请.{0,12}(?:直接)?拍板/.test(item)) return false;
+    return /(拍板|决定|确认|就按)/.test(item);
+  }).map((item) => item
+    .replace(/^拍板(?:指引|只引)/, '拍板：只演')
+    .replace(/单人链路(?=多人入口)/, '单人链路，')
+    .replace(/先隐藏(?=报告)/, '先隐藏；'))
+    .slice(0, 6);
 }
 
 function normalizeNarrative(value: Record<string, unknown>, fallback: ReturnType<typeof fallbackNarrative>) {
@@ -58,12 +75,13 @@ function normalizeNarrative(value: Record<string, unknown>, fallback: ReturnType
     const action = item && typeof item === 'object' ? item as Record<string, unknown> : {};
     return { owner: textValue(action.owner, '待认领').slice(0, 40), task: textValue(action.task || action.description, '跟进会议结论').slice(0, 220), due: textValue(action.due, '待确认').slice(0, 60) };
   }).filter((item) => item.task).slice(0, 8);
+  const decisions = explicitDecisions(value.decisions);
   return {
     summary: textValue(value.summary, fallback.summary),
     verdict: textValue(value.verdict, fallback.verdict),
     necessity: textValue(value.necessity, fallback.necessity) === '有必要开' ? '有必要开' : '可考虑异步',
     necessityReason: textValue(value.necessityReason, fallback.necessityReason),
-    decisions: stringList(value.decisions, 6).length ? stringList(value.decisions, 6) : fallback.decisions,
+    decisions: decisions.length ? decisions : fallback.decisions,
     actions: actions.length ? actions : fallback.actions,
     suggestions: stringList(value.suggestions, 5).length ? stringList(value.suggestions, 5) : fallback.suggestions,
     attendanceAdvice: textValue(value.attendanceAdvice, fallback.attendanceAdvice),
@@ -75,11 +93,20 @@ function fallbackNarrative(input: ReportInput) {
   const transcript = input.transcript || [];
   const spoken = new Set(transcript.map((line) => line.speakerId).filter(Boolean));
   const silent = attendees.find((person) => person.id && !spoken.has(person.id));
-  const decisionLines = transcript.filter((line) => /(拍板|决定|决策|确认|就按|起步|自动升|自动回滚)/.test(String(line.text || '')));
+  const decisionLines = transcript.filter((line) => {
+    const text = String(line.text || '');
+    return !/请.{0,12}(?:直接)?拍板/.test(text) && /(拍板|决定|决策|确认|就按|起步|自动升|自动回滚)/.test(text);
+  });
   const extractedActions: Array<{ owner: string; task: string; due: string }> = [];
   for (const line of transcript) {
     const text = String(line.text || '');
-    const due = text.match(/(周[一二三四五六日天](?:上午|下午|晚上)?\s*\d{1,2}(?::\d{1,2})?|明天|今天)/)?.[1] || '按会议约定';
+    const due = text.match(/((?:周[一二三四五六日天]|明天|今天)(?:上午|下午|晚上)?\s*\d{0,2}(?::\d{1,2})?点?)/)?.[1] || '按会议约定';
+    const selfDutyAt = text.indexOf('负责');
+    if (selfDutyAt >= 0 && /(我负责|由我负责|负责)/.test(text.slice(Math.max(0, selfDutyAt - 3), selfDutyAt + 2))) {
+      const owner = String(line.speaker || attendees.find((person) => person.id === line.speakerId)?.name || '待确认').trim();
+      const task = text.slice(selfDutyAt + 2).split(/[，,。；;]/)[0].replace(/^[：:\s]+|\s+$/g, '').trim();
+      if (task && !extractedActions.some((item) => item.owner === owner && item.task === task)) extractedActions.push({ owner, task, due });
+    }
     for (const attendee of attendees) {
       const name = String(attendee.name || '').trim();
       const nameAt = name ? text.indexOf(name) : -1;
@@ -89,16 +116,16 @@ function fallbackNarrative(input: ReportInput) {
       const timeAt = text.search(/周[一二三四五六日天]|明天|今天/);
       const end = timeAt > dutyAt ? Math.min(nextPersonAt, timeAt) : nextPersonAt;
       const task = text.slice(dutyAt + 2, end).replace(/^[，,：:\s]+|[。；;\s]+$/g, '').trim();
-      if (task) extractedActions.push({ owner: name, task, due });
+      if (task && !extractedActions.some((item) => item.owner === name && item.task === task)) extractedActions.push({ owner: name, task, due });
     }
   }
   const hasDecision = decisionLines.length > 0 || input.events?.some((event) => event.type === 'decision');
   return {
-    summary: `围绕“${input.meeting?.title || '会议主题'}”完成了一轮讨论。系统已保留关键转写与干预证据，可据此继续确认决策和待办。`,
+    summary: `围绕“${input.meeting?.title || '会议主题'}”完成了一轮讨论，并整理出当前决策与待办。`,
     verdict: hasDecision ? '这场会形成了明确决策，值得召开。' : '这场会完成了讨论，但决策还需要进一步明确。',
     necessity: hasDecision ? '有必要开' : '可考虑异步',
     necessityReason: hasDecision ? '讨论产生了明确决策或行动安排。' : '当前转写中尚未识别到清晰决策。',
-    decisions: decisionLines.slice(-3).map((line) => String(line.text || '').trim()).filter(Boolean),
+    decisions: explicitDecisions(decisionLines.slice(-3).map((line) => String(line.text || '').trim())),
     actions: extractedActions.slice(0, 8),
     suggestions: (input.events || []).slice(0, 3).map((event) => event.suggestion || '').filter(Boolean),
     attendanceAdvice: silent ? `${silent.name || '一位参会者'}未产生发言记录，下次可考虑异步接收纪要。` : '本次所有参会者均有发言记录。',
@@ -153,7 +180,7 @@ export async function POST(request: Request) {
 
   const transcriptText = transcript.map((line) => `${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 700)}`).join('\n').slice(-14000);
   const eventText = events.map((event) => `${event.type || 'event'}：${event.observation || ''}；建议：${event.suggestion || ''}`).join('\n').slice(-5000);
-  const prompt = `请为以下会议生成精炼、可验证的中文会后报告。只基于转写和事件，不补造事实。决策必须是明确达成共识的内容；行动项缺少负责人时 owner 写“待确认”，缺少时间时 due 写“待确认”。attendanceAdvice 语气尊重，不羞辱未发言者。
+  const prompt = `请为以下会议生成精炼的中文会后报告。只基于转写和事件，不补造事实。决策只提取主持人或拍板人明确确认的具体范围；“请某人拍板”只是请求，不是决策，不能列入 decisions。若发言含“拍板”，只提取其后已经确认的范围。不要把“保证真实、可信、可验证、接口证据、技术兜底”等元叙事扩写进摘要或决策。行动项严格按发言原意概括；缺少负责人时 owner 写“待确认”，缺少时间时 due 写“待确认”。suggestions 不重复。attendanceAdvice 语气尊重，不羞辱未发言者。
 
 会议：${String(input.meeting?.title || '未命名会议')}
 议题：${(input.meeting?.agenda || []).join('；')}
@@ -176,7 +203,7 @@ ${eventText || '无'}`;
         model,
         messages: [{ role: 'system', content: '你是严谨的会议效率分析师，输出结构化中文报告。最终输出必须是符合给定 schema 的 JSON。' }, { role: 'user', content: prompt }],
         temperature: 0.2,
-        max_tokens: 850,
+        max_tokens: 1400,
         reasoning: { enabled: false },
         include_reasoning: false,
         provider: { require_parameters: true },

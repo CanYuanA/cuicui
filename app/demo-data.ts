@@ -93,10 +93,10 @@ export const SPEAKERS: Speaker[] = [
 ];
 
 export const DEFAULT_CONFIG: MeetingConfig = {
-  title: '双十一会员券灰度上线决策会',
-  durationSeconds: 115,
+  title: '催催助手现场演示方案会',
+  durationSeconds: 100,
   meetingType: '方案决策会',
-  agenda: ['确定会员券灰度比例与升级门槛', '明确监控、回滚与联调负责人'],
+  agenda: ['确定评委能看懂的单人演示主线', '收敛首版范围并明确验收负责人'],
   attendees: SPEAKERS,
   prioritySpeakerId: 'boss',
   contextUrl: '',
@@ -123,11 +123,11 @@ export const EMPTY_REPORT: MeetingReport = {
 };
 
 export const TOPIC_SEGMENTS = [
-  { start: 0, end: 12, label: '会议目标', tone: 'focus' },
-  { start: 12, end: 28, label: '现场数据', tone: 'warning' },
-  { start: 28, end: 60, label: '方案讨论', tone: 'focus' },
-  { start: 60, end: 82, label: '门槛分歧', tone: 'critical' },
-  { start: 82, end: 100, label: '决策与行动', tone: 'success' },
+  { start: 0, end: 16, label: '目标对齐', tone: 'focus' },
+  { start: 16, end: 29, label: '短暂跑题', tone: 'warning' },
+  { start: 29, end: 52, label: '演示主线', tone: 'focus' },
+  { start: 52, end: 76, label: '范围分歧', tone: 'critical' },
+  { start: 76, end: 100, label: '收敛行动', tone: 'success' },
 ] as const;
 
 export function getSpeaker(id: string, speakers: Speaker[] = SPEAKERS) {

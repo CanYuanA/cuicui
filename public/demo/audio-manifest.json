@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-23T17:28:48.471Z",
+  "generatedAt": "2026-08-23T19:26:58.312Z",
   "provider": "OpenRouter",
   "model": "minimax/speech-2.8-hd",
-  "totalCharacters": 467,
-  "estimatedTtsCostUsd": 0.0467,
+  "totalCharacters": 457,
+  "estimatedTtsCostUsd": 0.0457,
   "meeting": {
-    "title": "双十一会员券灰度上线决策会",
-    "durationSeconds": 115,
+    "title": "催催助手现场演示方案会",
+    "durationSeconds": 100,
     "meetingType": "方案决策会",
     "agenda": [
-      "确定会员券灰度比例与升级门槛",
-      "明确监控、回滚与联调负责人"
+      "确定评委能看懂的单人演示主线",
+      "收敛首版范围并明确验收负责人"
     ],
     "prioritySpeakerId": "boss",
     "contextUrl": ""
@@ -67,285 +67,282 @@
   "utterances": [
     {
       "id": "u01",
-      "start": 0,
+      "start": 0.8,
+      "end": 7,
       "speakerId": "host",
-      "topic": "会议开场",
+      "topic": "会议目标",
       "workRelated": true,
-      "text": "好，人齐了。今天只定灰度比例和回滚负责人，一百二十秒内拍板。",
-      "tts": "(clear-throat) 好，人齐了。今天只定灰度比例和回滚负责人，一百二十秒内拍板。",
+      "text": "好，我们用一百秒定催催的演示主线：先让评委看懂，再让他相信有用。",
+      "tts": "(clear-throat) 好，我们用一百秒定催催的演示主线：先让评委看懂，再让他相信有用。",
       "audio": {
         "filename": "01-u01-host.mp3",
-        "generationId": "cached",
-        "bytes": 123309,
-        "sha256": "c455897cb4885b724578d346aaa9625ea2847c33efbf69de7848fc535642f123",
-        "durationSeconds": 7.67
+        "generationId": "gen-tts-1787513205-YCFiaELy7vguCzPP8xlZ",
+        "bytes": 126189,
+        "sha256": "10d2e1cdbfab106e825e1eb0911e4bc35b77a6b6c39bb6d3497e2c1cba9df674",
+        "durationSeconds": 7.85
       }
     },
     {
       "id": "u02",
-      "start": 7.2,
-      "speakerId": "engineer",
-      "topic": "压测数据",
+      "start": 8,
+      "end": 15.2,
+      "speakerId": "designer",
+      "topic": "演示主线",
       "workRelated": true,
-      "text": "昨晚压测峰值每秒一万二，百分之二十没问题，五十时数据库延迟涨了四成。",
-      "tts": "昨晚压测峰值每秒一万二，百分之二十没问题，五十时数据库延迟涨了四成。",
+      "text": "我建议从一个普通方案会开始。大家正常说话，催催边听边记，别先讲模型。",
+      "tts": "我建议从一个普通方案会开始。大家正常说话，催催边听边记，别先讲模型。",
       "audio": {
-        "filename": "02-u02-engineer.mp3",
-        "generationId": "cached",
-        "bytes": 121005,
-        "sha256": "3f46b31f54b7982941089fc1887f484d5dd9e8569ea6dc4ee024f32b0ed518fd",
-        "durationSeconds": 7.52
+        "filename": "02-u02-designer.mp3",
+        "generationId": "gen-tts-1787513207-u8AAGGfCbSe9zG667LXN",
+        "bytes": 108333,
+        "sha256": "be60852ce84a50dc80fe5ce9fa9864e28339809860485d9b0a958406716566df",
+        "durationSeconds": 6.73
       }
     },
     {
       "id": "u03",
-      "start": 15.6,
+      "start": 16.2,
+      "end": 21.3,
       "speakerId": "observer",
-      "topic": "咖啡闲聊",
+      "topic": "演示厅闲聊",
       "workRelated": false,
-      "text": "说到昨晚，楼下哪家咖啡真不行，我喝完到两点都没困。",
-      "tts": "(laughs) 说到昨晚，楼下哪家咖啡真不行，我喝完到两点都没困。",
+      "text": "等一下，演示厅是不是特别冷？我刚下楼拿了件外套。",
+      "tts": "等一下，演示厅是不是特别冷？我刚下楼拿了件外套。",
       "audio": {
         "filename": "03-u03-observer.mp3",
-        "generationId": "cached",
-        "bytes": 100845,
-        "sha256": "f8c2bc954f665185d7cc940d9d02e66fabc24914a715f3a1361e558ff1e67c08",
-        "durationSeconds": 6.26
-      }
-    },
-    {
-      "id": "u04",
-      "start": 21.5,
-      "speakerId": "designer",
-      "topic": "咖啡闲聊",
-      "workRelated": false,
-      "text": "他们燕麦拿铁还可以，就是排队太久。我都准备自己带咖啡了。",
-      "tts": "他们燕麦拿铁还可以，就是排队太久。我都准备自己带咖啡了。",
-      "audio": {
-        "filename": "04-u04-designer.mp3",
-        "generationId": "cached",
-        "bytes": 81837,
-        "sha256": "fe5d51e2570f4872840880e8c3a12932a7d0eaf3dc144ffc7d8a246c0c65f5dd",
-        "durationSeconds": 5.08
-      }
-    },
-    {
-      "id": "u05",
-      "start": 28,
-      "speakerId": "boss",
-      "topic": "业务目标",
-      "workRelated": true,
-      "text": "先回正题。业务希望百分之五十，量太小看不出转化差异。",
-      "tts": "先回正题。业务希望百分之五十，量太小看不出转化差异。",
-      "audio": {
-        "filename": "05-u05-boss.mp3",
-        "generationId": "cached",
+        "generationId": "gen-tts-1787513209-YtNU0CcxW1fW4cva81kF",
         "bytes": 78957,
-        "sha256": "d6abea05de64f63ab1811758a0bc78aaa39084ad483adb00af939a32bad8492b",
+        "sha256": "fd37d5d7c8afdac08f9145420d1334445063ff588530ee290173c2c9082af090",
         "durationSeconds": 4.9
       }
     },
     {
-      "id": "u06",
-      "start": 35,
+      "id": "u04",
+      "start": 22.2,
+      "end": 28.2,
+      "speakerId": "host",
+      "topic": "拉回议题",
+      "workRelated": true,
+      "text": "是有点冷。这个先放会后，我们回到评委第一眼能看到什么。",
+      "tts": "是有点冷。这个先放会后，我们回到评委第一眼能看到什么。",
+      "audio": {
+        "filename": "04-u04-host.mp3",
+        "generationId": "gen-tts-1787513213-dvAC3P6qFXY7Uw6SkfdP",
+        "bytes": 105453,
+        "sha256": "8a46fe4ab8e1057228e9b2db55a0420ccc501a9899907ae240a11d651c1cf03e",
+        "durationSeconds": 6.55
+      }
+    },
+    {
+      "id": "u05",
+      "start": 29.1,
+      "end": 36.4,
       "speakerId": "engineer",
-      "topic": "技术风险",
+      "topic": "功能范围",
       "workRelated": true,
       "interrupted": true,
-      "text": "我担心五十会碰到写入瓶颈，回滚脚本还没完整压过，所以建议。",
-      "tts": "(emm) 我担心五十会碰到写入瓶颈，回滚脚本还没完整压过，所以建议。",
+      "text": "技术上先演实时转写，再演多人接入和音频分轨，我还想把接口证据也……",
+      "tts": "技术上先演实时转写，再演多人接入和音频分轨，我还想把接口证据也……",
       "audio": {
-        "filename": "06-u06-engineer.mp3",
-        "generationId": "cached",
-        "bytes": 110061,
-        "sha256": "d31fc8bd155568c44c71ba440ce545d74a0d439885d22266b1d3ec8bd2fa604d",
-        "durationSeconds": 6.84
+        "filename": "05-u05-engineer.mp3",
+        "generationId": "gen-tts-1787513215-MQFT0CkLzKjfLPjbEg3C",
+        "bytes": 116973,
+        "sha256": "3e4c14d1e7a756c496143a4d211dac7957400523c88c1e6f7fe41aab4b24c7b4",
+        "durationSeconds": 7.27
+      }
+    },
+    {
+      "id": "u06",
+      "start": 35.4,
+      "end": 43.5,
+      "speakerId": "designer",
+      "topic": "单人主线",
+      "workRelated": true,
+      "text": "等一下，先别堆功能。评委看到一句话说完，字幕再出现，提醒还能指出依据，就够了。",
+      "tts": "等一下，先别堆功能。评委看到一句话说完，字幕再出现，提醒还能指出依据，就够了。",
+      "audio": {
+        "filename": "06-u06-designer.mp3",
+        "generationId": "gen-tts-1787513217-7NC6MMeP6STxSbOINrNO",
+        "bytes": 121005,
+        "sha256": "5f15394033ae02a07570bd163e74123aa5b5aa86726e0f16212aef18a17c3ed4",
+        "durationSeconds": 7.52
       }
     },
     {
       "id": "u07",
-      "start": 40.6,
+      "start": 44.5,
+      "end": 50.9,
       "speakerId": "boss",
-      "topic": "业务目标",
+      "topic": "演示主线",
       "workRelated": true,
-      "text": "我们每次都说风险，百分之二十的数据根本没法做决策。",
-      "tts": "我们每次都说风险，百分之二十的数据根本没法做决策。",
+      "text": "对，主线就三步：听见、提醒、形成行动。多人模式这一版先不演。",
+      "tts": "对，主线就三步：听见、提醒、形成行动。多人模式这一版先不演。",
       "audio": {
         "filename": "07-u07-boss.mp3",
-        "generationId": "cached",
-        "bytes": 72045,
-        "sha256": "1e68c71485ab0a483c78702ff2b34d05e2d3850ef663d445c6c1610e42e1bd0c",
-        "durationSeconds": 4.46
+        "generationId": "gen-tts-1787513219-34gj7q8wZi1a80C3w3BB",
+        "bytes": 110061,
+        "sha256": "e1289dcd4b54e11bb4f4cbfe462f35e48f347ea4fa0e27099188a01ca319cf89",
+        "durationSeconds": 6.84
       }
     },
     {
       "id": "u08",
-      "start": 47,
-      "speakerId": "designer",
-      "topic": "混合方案",
+      "start": 52,
+      "end": 58.5,
+      "speakerId": "engineer",
+      "topic": "多人模式",
       "workRelated": true,
-      "interrupted": true,
-      "text": "可以先二十，指标稳定十分钟后自动升到五十，同时给用户明确提示。",
-      "tts": "可以先二十，指标稳定十分钟后自动升到五十，同时给用户明确提示。",
+      "text": "但不展示多人，怎么证明说话人区分？这个能力我还是觉得必须讲。",
+      "tts": "但不展示多人，怎么证明说话人区分？这个能力我还是觉得必须讲。",
       "audio": {
-        "filename": "08-u08-designer.mp3",
-        "generationId": "cached",
-        "bytes": 102573,
-        "sha256": "944966cca845599d6fa60ae7622c93ce56de2ff6a1a64bb34962ad6fdc33a448",
-        "durationSeconds": 6.37
+        "filename": "08-u08-engineer.mp3",
+        "generationId": "gen-tts-1787513222-XCa0DxrpdPCZYBVMFqme",
+        "bytes": 85293,
+        "sha256": "1a28c3fee9e7f133620b16fb76ef2e6f7d0099bdf91a041bf9a7caa1a107cada",
+        "durationSeconds": 5.29
       }
     },
     {
       "id": "u09",
-      "start": 52.5,
-      "speakerId": "boss",
-      "topic": "业务目标",
-      "workRelated": true,
-      "text": "我还是那个观点，不到五十就没有说服力，业务侧不能白等一周。",
-      "tts": "我还是那个观点，不到五十就没有说服力，业务侧不能白等一周。",
-      "audio": {
-        "filename": "09-u09-boss.mp3",
-        "generationId": "cached",
-        "bytes": 81261,
-        "sha256": "6df319aa2868888e28f3a9f0f8964636dae2dff8921cb8512ca164064cc090a8",
-        "durationSeconds": 5.04
-      }
-    },
-    {
-      "id": "u10",
-      "start": 60.2,
-      "speakerId": "engineer",
-      "topic": "混合方案",
-      "workRelated": true,
-      "text": "折中方案是二十起步，错误率低于千分之三且库存一致，再自动升到五十。",
-      "tts": "折中方案是二十起步，错误率低于千分之三且库存一致，再自动升到五十。",
-      "audio": {
-        "filename": "10-u10-engineer.mp3",
-        "generationId": "cached",
-        "bytes": 98541,
-        "sha256": "76df317c2aa2736e7804511af206c9fa8ba64a37f6134d3474d994133a40fbd0",
-        "durationSeconds": 6.12
-      }
-    },
-    {
-      "id": "u11",
-      "start": 68.5,
-      "speakerId": "boss",
-      "topic": "门槛分歧",
-      "workRelated": true,
-      "text": "我不同意把门槛设这么严，真实流量一定会有抖动。",
-      "tts": "(sighs) 我不同意把门槛设这么严，真实流量一定会有抖动。",
-      "audio": {
-        "filename": "11-u11-boss.mp3",
-        "generationId": "cached",
-        "bytes": 84141,
-        "sha256": "0c9d8eec120a2e78870389a7ce05589cb98c035b4e0d8d3cb6df5c6930a477c2",
-        "durationSeconds": 5.22
-      }
-    },
-    {
-      "id": "u12",
-      "start": 75,
+      "start": 59.5,
+      "end": 66,
       "speakerId": "designer",
-      "topic": "门槛分歧",
+      "topic": "多人模式",
       "workRelated": true,
-      "text": "但如果券状态不一致，客服和用户都会直接承受，不能只看转化。",
-      "tts": "但如果券状态不一致，客服和用户都会直接承受，不能只看转化。",
+      "text": "我不同意。入口现在不稳定，现场只要失败一次，前面的可信度就没了。",
+      "tts": "我不同意。入口现在不稳定，现场只要失败一次，前面的可信度就没了。",
       "audio": {
-        "filename": "12-u12-designer.mp3",
-        "generationId": "cached",
+        "filename": "09-u09-designer.mp3",
+        "generationId": "gen-tts-1787513224-TS40NYiMJszsEJTghjcV",
         "bytes": 96813,
-        "sha256": "f6f3bf4755fd55e81a3fb12f1277f9e993fa311c46a6c43afcfb3d67ee58a805",
+        "sha256": "44fc9a7f67cbe3d9c370957c525a107a05d0c26c2631c889457d13f4f3554162",
         "durationSeconds": 6.01
       }
     },
     {
-      "id": "u13",
-      "start": 83,
-      "speakerId": "host",
-      "topic": "主持人决策",
+      "id": "u10",
+      "start": 67,
+      "end": 74.3,
+      "speakerId": "engineer",
+      "topic": "范围分歧",
       "workRelated": true,
-      "text": "分歧清楚了。我拍板：二十起步，十分钟达标升五十；不达标自动回滚。",
-      "tts": "分歧清楚了。我拍板：二十起步，十分钟达标升五十；不达标自动回滚。",
+      "text": "我还是那个意见，多人的身份区分很关键；不演的话，至少得在口头上解释一下。",
+      "tts": "我还是那个意见，多人的身份区分很关键；不演的话，至少得在口头上解释一下。",
       "audio": {
-        "filename": "13-u13-host.mp3",
-        "generationId": "cached",
-        "bytes": 135981,
-        "sha256": "908d9bf8e152d0b8e2a39a539c178446778a3fdaf24dbb1cd9872ae5631f710b",
-        "durationSeconds": 8.46
+        "filename": "10-u10-engineer.mp3",
+        "generationId": "gen-tts-1787513226-d2BcFYNInujgJAUQOO0e",
+        "bytes": 114093,
+        "sha256": "af72d35308cef86b43d3f375b89b0e6379d6fe81db9d48f2a83695ad2730a3b4",
+        "durationSeconds": 7.09
+      }
+    },
+    {
+      "id": "u11",
+      "start": 75.3,
+      "end": 81.8,
+      "speakerId": "host",
+      "topic": "预计超时",
+      "workRelated": true,
+      "text": "这个点已经来回说了两遍，范围还没定。现在只剩二十三秒，请周总直接拍板。",
+      "tts": "这个点已经来回说了两遍，范围还没定。现在只剩二十三秒，请周总直接拍板。",
+      "audio": {
+        "filename": "11-u11-host.mp3",
+        "generationId": "gen-tts-1787513227-qWxWm73JzRTlaTEIqdAD",
+        "bytes": 121581,
+        "sha256": "257aa9fa7225ffaff8f6051b9aeeec3b799ddddd6e2a534d8ab15107a122c71c",
+        "durationSeconds": 7.56
+      }
+    },
+    {
+      "id": "u12",
+      "start": 82.7,
+      "end": 88.9,
+      "speakerId": "boss",
+      "topic": "范围决策",
+      "workRelated": true,
+      "text": "拍板：只演单人链路，多人入口先隐藏；报告必须从现场转写生成。",
+      "tts": "拍板：只演单人链路，多人入口先隐藏；报告必须从现场转写生成。",
+      "audio": {
+        "filename": "12-u12-boss.mp3",
+        "generationId": "gen-tts-1787513231-2oOnOCkkekBpnnNVqDhN",
+        "bytes": 107757,
+        "sha256": "56527ce0c2a6079af73ed2d51afb8f366136eb71826973d686c055ec48ce2211",
+        "durationSeconds": 6.7
+      }
+    },
+    {
+      "id": "u13",
+      "start": 89.8,
+      "end": 94.3,
+      "speakerId": "engineer",
+      "topic": "工程行动",
+      "workRelated": true,
+      "text": "我负责讯飞直连和逐句时间戳；识别失败就明确报错，不做假字幕兜底。",
+      "tts": "我负责讯飞直连和逐句时间戳；识别失败就明确报错，不做假字幕兜底。",
+      "audio": {
+        "filename": "13-u13-engineer.mp3",
+        "generationId": "gen-tts-1787513233-jULPoSeWljHYpDFdofPw",
+        "bytes": 101421,
+        "sha256": "8acd4966cb9f7fc99edfac3bd74cd066c4b4e70f9ed3634a994da7f3dc646a95",
+        "durationSeconds": 6.3
       }
     },
     {
       "id": "u14",
-      "start": 92.3,
-      "speakerId": "boss",
-      "topic": "决策确认",
+      "start": 95.2,
+      "end": 99,
+      "speakerId": "designer",
+      "topic": "产品行动",
       "workRelated": true,
-      "text": "可以，门槛用千分之三，不过业务仪表盘要同步看。",
-      "tts": "可以，门槛用千分之三，不过业务仪表盘要同步看。",
+      "text": "我负责按真实节点出字幕和提醒，明天下午四点请林主持验收。",
+      "tts": "我负责按真实节点出字幕和提醒，明天下午四点请林主持验收。",
       "audio": {
-        "filename": "14-u14-boss.mp3",
-        "generationId": "cached",
-        "bytes": 78381,
-        "sha256": "a79d9c6f6ab16b0340f336fba8d5fb3f41f15d12ec3729f29c1f132ea8e0679a",
-        "durationSeconds": 4.86
-      }
-    },
-    {
-      "id": "u15",
-      "start": 99.5,
-      "speakerId": "host",
-      "topic": "行动项",
-      "workRelated": true,
-      "text": "王工负责回滚和告警，郭产品负责仪表盘，周三七点半联调。会就到这。",
-      "tts": "王工负责回滚和告警，郭产品负责仪表盘，周三七点半联调。会就到这。",
-      "audio": {
-        "filename": "15-u15-host.mp3",
-        "generationId": "cached",
-        "bytes": 128493,
-        "sha256": "0940c72285313f7466514fc93a1d16ec37573b61027fd0a374408a356736cffe",
-        "durationSeconds": 7.99
+        "filename": "14-u14-designer.mp3",
+        "generationId": "gen-tts-1787513235-cFiRLpJl4DrR87ldd7Gl",
+        "bytes": 83565,
+        "sha256": "cbffe22f4500df9293ba6d5cc71a839f701fb0430c241723f0a4111892839f92",
+        "durationSeconds": 5.18
       }
     }
   ],
   "artifacts": {
     "master": {
       "path": "/demo/meeting-master.mp3",
-      "sha256": "6ed60fdd3258ff6bbf0cf81b40976ed93c9bfa62ca6d3faabaec80d2384f77d1",
-      "bytes": 1841516,
-      "durationSeconds": 115.06
+      "sha256": "78d184e48d98b25772b681801af6d699ff5b82a71e2327f3f98dd521f81fac0e",
+      "bytes": 1600748,
+      "durationSeconds": 100.00999999999999
     },
     "asrWav": {
       "path": "/demo/meeting-master-asr.wav",
-      "sha256": "109c4c961b87c0493e8ecaeed4f0caae7952353a7c2bd5d3c77b16b023b4cf7a",
-      "bytes": 3680078,
+      "sha256": "1f9d1a70e90ae28b7e5682a542f186b8abc7e770385067bc7500c7e91fb7e58a",
+      "bytes": 3199038,
       "format": "16kHz mono PCM16 WAV"
     },
     "stems": {
       "host": {
         "path": "/demo/stems/host.mp3",
-        "sha256": "bc49b1c68e129c028dda7e692dc3b75ed22bfcefe82d41f9525ecda15d3ab15d",
-        "bytes": 1381148
+        "sha256": "083c217786c3b1ec2dc7f4c59ad23ea7fdf3b5752698f09a169cd048e76abd82",
+        "bytes": 1201004
       },
       "boss": {
         "path": "/demo/stems/boss.mp3",
-        "sha256": "dab4f8524ec60bfc155a8f4d0e1f32a6fec67fc456095854622d517521a7896c",
-        "bytes": 1381148
+        "sha256": "18cf46e16703a01d4e2a3f3442fe2c3643d3ba84370d83f2a3047260b60b9584",
+        "bytes": 1201004
       },
       "engineer": {
         "path": "/demo/stems/engineer.mp3",
-        "sha256": "1f029b913678e5930594038dd14b79e770bc291ebc88b81e06e6dfdd24ed7f3f",
-        "bytes": 1381148
+        "sha256": "7c62199e7c1642f6b415d468bf5d072fca512a88ade3708688f4ae277d5e335e",
+        "bytes": 1201004
       },
       "designer": {
         "path": "/demo/stems/designer.mp3",
-        "sha256": "a7695b3aa42b50b58602142bb3ac85bb8f405b4d318c1de481c096069357300d",
-        "bytes": 1381148
+        "sha256": "0e7b2975867e0b43f9d87344e18322384b3f1ab80bae3fe4b4a1b029bf95017e",
+        "bytes": 1201004
       },
       "observer": {
         "path": "/demo/stems/observer.mp3",
-        "sha256": "0a8187a44e05fb0d6295cb41de009b99ab3e6a38e669a8107ffcfefae43b610a",
-        "bytes": 1381148
+        "sha256": "17dd79e7386864b0b7f22d279b81efa9ab49b772a465a751e795d7d9e45ec058",
+        "bytes": 1201004
       }
     }
   }

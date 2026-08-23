@@ -38,13 +38,18 @@ function durationOf(path) {
   return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : null;
 }
 
-async function generateSegment(utterance, apiKey, previous) {
+async function generateSegment(utterance, apiKey, previousUtterance, previousVoiceId) {
   const speaker = speakerFor(utterance.speakerId);
   const index = fixture.utterances.indexOf(utterance) + 1;
   const filename = `${String(index).padStart(2, '0')}-${utterance.id}-${utterance.speakerId}.mp3`;
   const path = join(segmentDir, filename);
-  if (existsSync(path) && statSync(path).size > 1000) {
-    return { filename, generationId: previous?.generationId || 'cached', bytes: statSync(path).size, sha256: sha256(path), durationSeconds: durationOf(path) };
+  const requestedTts = utterance.tts || utterance.text;
+  const previousTts = previousUtterance?.tts || previousUtterance?.text;
+  const cacheMatches = previousUtterance?.text === utterance.text
+    && previousTts === requestedTts
+    && previousVoiceId === speaker.voice;
+  if (cacheMatches && existsSync(path) && statSync(path).size > 1000) {
+    return { filename, generationId: previousUtterance?.audio?.generationId || 'cached', bytes: statSync(path).size, sha256: sha256(path), durationSeconds: durationOf(path) };
   }
 
   let lastError;
@@ -60,7 +65,7 @@ async function generateSegment(utterance, apiKey, previous) {
         },
         body: JSON.stringify({
           model: 'minimax/speech-2.8-hd',
-          input: utterance.tts || utterance.text,
+          input: requestedTts,
           voice: speaker.voice,
           response_format: 'mp3',
         }),
@@ -125,8 +130,9 @@ async function main() {
 
   const segmentRecords = [];
   for (const utterance of fixture.utterances) {
-    const previous = previousManifest?.utterances?.find((item) => item.id === utterance.id)?.audio;
-    const record = await generateSegment(utterance, apiKey, previous);
+    const previousUtterance = previousManifest?.utterances?.find((item) => item.id === utterance.id);
+    const previousVoiceId = previousManifest?.speakers?.find((item) => item.id === utterance.speakerId)?.voiceId;
+    const record = await generateSegment(utterance, apiKey, previousUtterance, previousVoiceId);
     segmentRecords.push(record);
     console.log(`generated ${utterance.id} ${record.bytes} bytes`);
   }

@@ -86,6 +86,8 @@ jobs:
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
           test -f "$APP_DIRECTORY/docker-compose.yml"
+          grep -q '^SITE_ACCESS_PASSWORD=.' "$APP_DIRECTORY/app.env"
+          grep -q '^DEMO_SESSION_SECRET=.' "$APP_DIRECTORY/app.env"
           cd "$APP_DIRECTORY"
           IMAGE_TAG="$IMAGE_TAG" docker compose config --quiet
 
@@ -151,7 +153,7 @@ jobs:
 
           public_healthy=false
           for attempt in $(seq 1 18); do
-            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true' >/dev/null; then
+            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true and .services.access == true' >/dev/null; then
               public_healthy=true
               break
             fi

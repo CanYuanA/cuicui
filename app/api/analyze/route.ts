@@ -11,6 +11,29 @@ type AnalyzeInput = {
 
 const eventTypes = ['off_topic', 'smalltalk', 'interrupt', 'repeat', 'disagreement', 'time', 'decision'] as const;
 
+function forecastTimeRisk(input: AnalyzeInput, transcript: TranscriptInput[]) {
+  const elapsed = Math.max(0, Number(input.elapsedSeconds || 0));
+  const duration = Math.max(1, Number(input.meeting?.durationSeconds || 1800));
+  const ratio = elapsed / duration;
+  const previous = new Set(input.previousEventTypes || []);
+  const discussion = transcript.map((item) => String(item.text || '')).join('');
+  const hasDecision = /(拍板|决定|就按|结论|确认方案|行动项|负责)/.test(discussion);
+  const hasUnresolvedSignal = /(不同意|反对|不认可|担心|但是|风险|争议|还没|再讨论)/.test(discussion.slice(-1200));
+  if (previous.has('time') || ratio < .72 || (hasDecision && !hasUnresolvedSignal)) return null;
+  const remaining = Math.max(0, Math.round(duration - elapsed));
+  const estimatedOverrun = Math.max(10, Math.round(duration * (hasUnresolvedSignal ? .18 : .12)));
+  return {
+    type: 'time',
+    severity: elapsed >= duration ? 'critical' : 'warning',
+    label: '△ 催一下 · 预计超时',
+    observation: `计划时间已使用 ${Math.round(ratio * 100)}%，关键方案仍未完全收敛。`,
+    impact: remaining > 0 ? `按当前讨论节奏，预计超时约 ${estimatedOverrun} 秒。` : `会议已经超过计划时长 ${Math.round(elapsed - duration)} 秒。`,
+    suggestion: '请主持人冻结新增观点，明确决策标准并立即拍板。',
+    evidence: `时间进度 ${Math.round(elapsed)} / ${Math.round(duration)} 秒 · 最近转写仍包含未决信号`,
+    confidence: .94,
+  };
+}
+
 function fallbackAnalysis(input: AnalyzeInput) {
   const transcript = Array.isArray(input.transcript) ? input.transcript : [];
   const recent = transcript.slice(-8).map((item) => `${item.speaker || '未知'}：${item.text || ''}`).join('\n');
@@ -26,17 +49,13 @@ function fallbackAnalysis(input: AnalyzeInput) {
       observation: '最近讨论出现与会议目标无关的生活闲聊。', impact: '核心议题推进被暂停。',
       suggestion: '把闲聊放入会后停车场，回到当前议题。', evidence: '本地规则兜底 · 闲聊关键词命中', confidence: 0.76,
     };
+  } else if (forecastTimeRisk(input, transcript)) {
+    event = forecastTimeRisk(input, transcript);
   } else if (!previous.has('disagreement') && /(不同意|反对|不认可|风险|但是|不行)/.test(normalized) && /(必须|应该|建议|方案)/.test(normalized)) {
     event = {
       type: 'disagreement', severity: elapsed / duration > 0.72 ? 'critical' : 'warning', label: '△ 催一下 · 观点分歧',
       observation: '同一方案出现明显的支持与反对立场。', impact: '继续增加论据可能导致会议超时。',
       suggestion: '请记录双方条件，由主持人明确决策标准。', evidence: '本地规则兜底 · 相反立场词命中', confidence: 0.68,
-    };
-  } else if (!previous.has('time') && elapsed / duration >= 0.75) {
-    event = {
-      type: 'time', severity: elapsed >= duration ? 'critical' : 'info', label: '○ 提个醒 · 时间进度',
-      observation: `会议已进行 ${Math.round(elapsed)} 秒。`, impact: `剩余约 ${Math.max(0, Math.round(duration - elapsed))} 秒。`,
-      suggestion: '请主持人确认未决议题并开始收尾。', evidence: `本地规则兜底 · 时间进度 ${Math.round(elapsed / duration * 100)}%`, confidence: 1,
     };
   }
 
@@ -190,7 +209,10 @@ ${transcriptText}`;
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
     const parsed = parseContent(result.choices?.[0]?.message?.content);
-    return Response.json({ ...parsed, events: normalizeEvents(parsed.events), source: 'openrouter', model, usage: result.usage || null });
+    let events = normalizeEvents(parsed.events);
+    const timeRisk = forecastTimeRisk(input, transcript);
+    if (timeRisk && !events.some((event) => event.type === 'time')) events = [...events.slice(0, 1), timeRisk];
+    return Response.json({ ...parsed, events, source: 'openrouter', model, usage: result.usage || null });
   } catch (error) {
     const fallback = fallbackAnalysis(input);
     return Response.json({ ...fallback, degraded: true, reason: error instanceof Error ? error.message : 'AI 服务暂时不可用' });

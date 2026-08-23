@@ -27,7 +27,13 @@ type XfyunMessage = {
   data?: { status?: number; result?: XfyunResult };
 };
 
-type AuthPayload = { url: string; appId: string };
+type AuthPayload = { url: string; appId: string; expiresAt?: number };
+
+const FRAME_SAMPLES = 640;
+const FRAME_INTERVAL_MS = 40;
+const SESSION_ROTATION_MS = 50_000;
+const IFLYTEK_HOST = 'iat-api.xfyun.cn';
+const AUDIO_FORMAT = 'audio/L16;rate=16000';
 
 function int16ToBase64(samples: Int16Array) {
   const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
@@ -37,45 +43,95 @@ function int16ToBase64(samples: Int16Array) {
   return btoa(binary);
 }
 
-function resampleTo16k(input: Float32Array, inputRate: number) {
-  if (inputRate === 16000) return input;
-  const ratio = inputRate / 16000;
-  const outputLength = Math.max(1, Math.floor(input.length / ratio));
-  const output = new Float32Array(outputLength);
-  for (let index = 0; index < outputLength; index += 1) {
-    const source = index * ratio;
-    const left = Math.floor(source);
-    const right = Math.min(input.length - 1, left + 1);
-    const mix = source - left;
-    output[index] = input[left] * (1 - mix) + input[right] * mix;
-  }
-  return output;
+function toInt16(value: number) {
+  const normalized = Math.max(-1, Math.min(1, value));
+  return Math.round(normalized < 0 ? normalized * 0x8000 : normalized * 0x7fff);
 }
 
-function floatToInt16(input: Float32Array) {
-  const output = new Int16Array(input.length);
-  for (let index = 0; index < input.length; index += 1) {
-    const value = Math.max(-1, Math.min(1, input[index]));
-    output[index] = value < 0 ? value * 0x8000 : value * 0x7fff;
-  }
-  return output;
-}
+class StreamingPcm16Resampler {
+  private inputRate = 0;
+  private inputOffset = 0;
+  private nextOutputAt = 0;
+  private previousSample = 0;
+  private hasPreviousSample = false;
 
-function blobToBase64(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
-    reader.onerror = () => reject(reader.error || new Error('读取录音失败'));
-    reader.readAsDataURL(blob);
-  });
+  reset() {
+    this.inputRate = 0;
+    this.inputOffset = 0;
+    this.nextOutputAt = 0;
+    this.previousSample = 0;
+    this.hasPreviousSample = false;
+  }
+
+  process(input: Float32Array, inputRate: number) {
+    if (!input.length || !Number.isFinite(inputRate) || inputRate <= 0) return new Int16Array();
+    if (this.inputRate !== inputRate) {
+      this.reset();
+      this.inputRate = inputRate;
+    }
+    if (inputRate === 16000) return Int16Array.from(input, toInt16);
+
+    const firstIndex = this.inputOffset;
+    const lastIndex = firstIndex + input.length - 1;
+    const step = inputRate / 16000;
+    const output: number[] = [];
+
+    while (this.nextOutputAt <= lastIndex) {
+      const leftIndex = Math.floor(this.nextOutputAt);
+      const mix = this.nextOutputAt - leftIndex;
+      const rightIndex = leftIndex + 1;
+      if (mix > Number.EPSILON && rightIndex > lastIndex) break;
+
+      const left = leftIndex === firstIndex - 1 && this.hasPreviousSample
+        ? this.previousSample
+        : input[leftIndex - firstIndex];
+      if (left === undefined) break;
+      const right = mix <= Number.EPSILON
+        ? left
+        : rightIndex === firstIndex - 1 && this.hasPreviousSample
+          ? this.previousSample
+          : input[rightIndex - firstIndex];
+      if (right === undefined) break;
+      output.push(toInt16(left * (1 - mix) + right * mix));
+      this.nextOutputAt += step;
+    }
+
+    this.inputOffset += input.length;
+    this.previousSample = input[input.length - 1];
+    this.hasPreviousSample = true;
+    return Int16Array.from(output);
+  }
 }
 
 async function requestMicrophone() {
+  if (!window.isSecureContext) throw new Error('麦克风需要 HTTPS 安全连接，请从正式演示地址进入。');
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持麦克风采集，请使用最新版 Chrome 或 Edge。');
-  return navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    video: false,
-  });
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')) {
+      throw new Error('麦克风权限未开启，请在浏览器地址栏允许本网站使用麦克风后重试。');
+    }
+    if (error instanceof DOMException && error.name === 'NotFoundError') throw new Error('没有检测到可用麦克风，请连接麦克风后重试。');
+    throw new Error(`无法启动麦克风：${error instanceof Error ? error.message : '未知错误'}`);
+  }
+}
+
+function providerErrorMessage(message: XfyunMessage) {
+  const code = message.code ?? -1;
+  if (code === 10005) return '当前讯飞应用未开通流式语音听写，请在讯飞控制台为这个 APPID 开通后重试。';
+  if (code === 10010 || code === 10110) return '讯飞流式语音听写授权或免费额度不可用，请检查控制台套餐状态。';
+  if (code === 11200) return '讯飞应用未开通当前语种或方言，请启用中文普通话听写。';
+  if (code === 10163) return '发送给讯飞的音频帧过长，请刷新页面后重试。';
+  return `讯飞听写返回错误 ${code}：${message.message || '未知错误'}`;
+}
+
+function connectionErrorMessage(code?: number, reason?: string) {
+  const detail = code ? `（连接代码 ${code}${reason ? ` · ${reason}` : ''}）` : '';
+  return `讯飞实时听写握手失败${detail}。请确认当前网络允许访问 ${IFLYTEK_HOST}；若讯飞控制台启用了 IP 白名单，需要关闭白名单或加入当前浏览器的出口 IP。`;
 }
 
 export class XfyunTranscriber implements MeetingTranscriber {
@@ -85,16 +141,19 @@ export class XfyunTranscriber implements MeetingTranscriber {
   private audioContext: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private silentSink: GainNode | null = null;
   private frameTimer: number | null = null;
   private rotationTimer: number | null = null;
   private reconnectTimer: number | null = null;
   private pending: number[] = [];
+  private pendingOffset = 0;
+  private resampler = new StreamingPcm16Resampler();
   private pieces = new Map<number, string>();
   private completedText = '';
   private firstFrame = true;
+  private captureEnabled = false;
   private stopping = false;
   private waitingForFinal = false;
-  private connectedOnce = false;
   private sessionEpoch = 0;
   private reconnectFailures = 0;
   private appId = '';
@@ -106,84 +165,126 @@ export class XfyunTranscriber implements MeetingTranscriber {
   async start() {
     if (this.stream) return;
     this.stopping = false;
+    this.pending = [];
+    this.pendingOffset = 0;
+    this.resampler.reset();
     this.options.onStatus('requesting');
-    const firstAuth = await this.fetchAuth();
     try {
+      // Request permission before minting the five-minute signed URL. A user can
+      // leave a permission prompt open long enough for an earlier URL to expire.
       this.stream = await requestMicrophone();
       const context = new AudioContext({ latencyHint: 'interactive' });
       this.audioContext = context;
       if (context.state === 'suspended') await context.resume();
       const source = context.createMediaStreamSource(this.stream);
-      const processor = context.createScriptProcessor(4096, 1, 1);
+      const processor = context.createScriptProcessor(2048, 1, 1);
+      const silentSink = context.createGain();
+      silentSink.gain.value = 0;
       this.source = source;
       this.processor = processor;
+      this.silentSink = silentSink;
       processor.onaudioprocess = (event) => {
-        if (this.stopping) return;
-        const pcm = floatToInt16(resampleTo16k(event.inputBuffer.getChannelData(0), context.sampleRate));
-        for (const sample of pcm) this.pending.push(sample);
+        if (this.stopping || !this.captureEnabled) return;
+        this.enqueue(this.resampler.process(event.inputBuffer.getChannelData(0), context.sampleRate));
       };
       source.connect(processor);
-      processor.connect(context.destination);
+      processor.connect(silentSink);
+      silentSink.connect(context.destination);
+
+      const firstAuth = await this.fetchAuth();
       await this.openSession(firstAuth);
-      this.frameTimer = window.setInterval(() => this.sendAudioFrame(), 40);
+      this.frameTimer = window.setInterval(() => this.sendAudioFrame(), FRAME_INTERVAL_MS);
     } catch (error) {
+      this.stopping = true;
+      this.clearTimers();
       this.releaseMedia();
+      this.options.onStatus('closed');
       throw error;
     }
   }
 
   private async fetchAuth() {
-    const response = await fetch('/api/iflytek-auth', { cache: 'no-store', headers: { 'X-Cuicui-Session': this.options.accessToken }, signal: AbortSignal.timeout(8000) });
-    const payload = await response.json().catch(() => ({})) as { url?: string; appId?: string; error?: string };
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    let response: Response;
+    try {
+      response = await fetch('/api/iflytek-auth', {
+        cache: 'no-store',
+        headers: { 'X-Cuicui-Session': this.options.accessToken },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error('讯飞鉴权请求超时，请检查当前网络后重试。');
+      throw new Error(`无法获取讯飞鉴权：${error instanceof Error ? error.message : '网络错误'}`);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+    const payload = await response.json().catch(() => ({})) as { url?: string; appId?: string; expiresAt?: number; error?: string };
     if (!response.ok || !payload.url || !payload.appId) throw new Error(payload.error || `讯飞鉴权失败（HTTP ${response.status}）`);
-    return { url: payload.url, appId: payload.appId } satisfies AuthPayload;
+    let endpoint: URL;
+    try { endpoint = new URL(payload.url); } catch { throw new Error('讯飞鉴权服务返回了无效地址。'); }
+    if (endpoint.protocol !== 'wss:' || endpoint.hostname !== IFLYTEK_HOST || endpoint.pathname !== '/v2/iat') {
+      throw new Error('讯飞鉴权服务返回了非预期地址。');
+    }
+    return { url: endpoint.toString(), appId: payload.appId, expiresAt: payload.expiresAt } satisfies AuthPayload;
   }
 
-  private openSession(auth?: AuthPayload) {
-    return new Promise<void>(async (resolve, reject) => {
-      const epoch = ++this.sessionEpoch;
-      try {
-        const credentials = auth || await this.fetchAuth();
-        if (this.stopping || epoch !== this.sessionEpoch) return reject(new Error('听写已停止'));
-        this.appId = credentials.appId;
-        this.options.onStatus('connecting');
-        const socket = new WebSocket(credentials.url);
-        this.socket = socket;
-        this.firstFrame = true;
-        this.waitingForFinal = false;
-        this.pieces.clear();
-        const timeout = window.setTimeout(() => {
-          try { socket.close(4000, 'connect timeout'); } catch { /* already closed */ }
-          reject(new Error('讯飞 WebSocket 连接超时'));
-        }, 9000);
+  private async openSession(auth?: AuthPayload) {
+    const epoch = ++this.sessionEpoch;
+    const credentials = auth || await this.fetchAuth();
+    if (this.stopping || epoch !== this.sessionEpoch) throw new Error('听写已停止');
+    if (credentials.expiresAt && credentials.expiresAt <= Date.now() + 5000) throw new Error('讯飞鉴权地址已过期，请重新开启麦克风。');
+    this.appId = credentials.appId;
+    this.options.onStatus('connecting');
 
-        socket.onopen = () => {
-          if (epoch !== this.sessionEpoch || this.stopping) return;
-          window.clearTimeout(timeout);
-          this.connectedOnce = true;
-          this.reconnectFailures = 0;
-          this.options.onStatus('listening');
-          this.scheduleRotation();
-          resolve();
-        };
-        socket.onmessage = (event) => this.handleMessage(epoch, event.data);
-        socket.onerror = () => {
-          if (!this.connectedOnce) {
-            window.clearTimeout(timeout);
-            reject(new Error('讯飞浏览器直连失败'));
-          }
-        };
-        socket.onclose = (event) => {
-          window.clearTimeout(timeout);
-          if (epoch !== this.sessionEpoch) return;
-          const expectedClose = this.waitingForFinal;
-          this.finishCurrentText();
-          if (this.stopping || expectedClose) return;
-          this.scheduleReconnect(`连接关闭 ${event.code}${event.reason ? ` · ${event.reason}` : ''}`);
-        };
-      } catch (error) {
-        reject(error);
-      }
+    return new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(credentials.url);
+      this.socket = socket;
+      this.firstFrame = true;
+      this.waitingForFinal = false;
+      this.pieces.clear();
+      let opened = false;
+      let settled = false;
+      const finishConnect = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(connectTimeout);
+        if (error) reject(error);
+        else resolve();
+      };
+      const connectTimeout = window.setTimeout(() => {
+        finishConnect(new Error('讯飞 WebSocket 连接超时，请检查当前网络后重试。'));
+        try { socket.close(4000, 'connect timeout'); } catch { /* already closed */ }
+      }, 9000);
+
+      socket.onopen = () => {
+        if (epoch !== this.sessionEpoch || this.stopping) {
+          socket.close(1000, 'stale session');
+          return;
+        }
+        opened = true;
+        this.captureEnabled = true;
+        this.options.onStatus('listening');
+        this.scheduleRotation();
+        finishConnect();
+      };
+      socket.onmessage = (event) => this.handleMessage(epoch, event.data);
+      socket.onerror = () => {
+        if (!opened) finishConnect(new Error(connectionErrorMessage()));
+      };
+      socket.onclose = (event) => {
+        window.clearTimeout(connectTimeout);
+        if (this.socket === socket) this.socket = null;
+        if (epoch !== this.sessionEpoch) return;
+        const expectedClose = this.waitingForFinal;
+        this.finishCurrentText();
+        if (!opened) {
+          finishConnect(new Error(connectionErrorMessage(event.code, event.reason)));
+          return;
+        }
+        if (this.stopping || expectedClose) return;
+        this.scheduleReconnect(`连接关闭 ${event.code}${event.reason ? ` · ${event.reason}` : ''}`);
+      };
     });
   }
 
@@ -195,15 +296,16 @@ export class XfyunTranscriber implements MeetingTranscriber {
     return `${this.completedText}${this.combinedSessionText()}`.trim();
   }
 
-  private handleMessage(epoch: number, raw: string) {
+  private handleMessage(epoch: number, raw: unknown) {
     if (epoch !== this.sessionEpoch) return;
     try {
+      if (typeof raw !== 'string') throw new Error('non-text response');
       const message = JSON.parse(raw) as XfyunMessage;
       if (message.code !== 0) {
-        this.options.onError(`讯飞听写错误 ${message.code}：${message.message || '未知错误'}${message.sid ? `（${message.sid}）` : ''}`);
-        this.socket?.close(4001, 'provider error');
+        this.failPermanently(providerErrorMessage(message));
         return;
       }
+      this.reconnectFailures = 0;
       const result = message.data?.result;
       if (result) {
         const fragment = (result.ws || []).map((item) => item.cw?.[0]?.w || '').join('');
@@ -216,8 +318,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
         this.socket?.close(1000, 'session complete');
       }
     } catch {
-      this.options.onError('讯飞返回了无法解析的听写结果，正在自动续接。');
-      this.socket?.close(4002, 'invalid response');
+      this.failPermanently('讯飞返回了无法解析的听写结果，请刷新页面后重试。');
     }
   }
 
@@ -230,12 +331,34 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.pieces.clear();
   }
 
+  private enqueue(samples: Int16Array) {
+    for (let index = 0; index < samples.length; index += 1) this.pending.push(samples[index]);
+  }
+
+  private availableSamples() {
+    return this.pending.length - this.pendingOffset;
+  }
+
+  private takeSamples(maximum: number, exact = false) {
+    const available = this.availableSamples();
+    if (exact && available < maximum) return new Int16Array();
+    const count = Math.min(maximum, available);
+    const result = Int16Array.from(this.pending.slice(this.pendingOffset, this.pendingOffset + count));
+    this.pendingOffset += count;
+    if (this.pendingOffset >= 8192 && this.pendingOffset * 2 >= this.pending.length) {
+      this.pending = this.pending.slice(this.pendingOffset);
+      this.pendingOffset = 0;
+    }
+    return result;
+  }
+
   private sendAudioFrame() {
     const socket = this.socket;
-    if (this.stopping || this.waitingForFinal || !socket || socket.readyState !== WebSocket.OPEN || this.pending.length < 640) return;
-    const chunk = new Int16Array(this.pending.splice(0, 640));
+    if (this.stopping || this.waitingForFinal || !socket || socket.readyState !== WebSocket.OPEN) return;
+    const chunk = this.takeSamples(FRAME_SAMPLES, true);
+    if (chunk.length !== FRAME_SAMPLES) return;
     const payload: Record<string, unknown> = {
-      data: { status: this.firstFrame ? 0 : 1, format: 'audio/L16;rate=16000', encoding: 'raw', audio: int16ToBase64(chunk) },
+      data: { status: this.firstFrame ? 0 : 1, format: AUDIO_FORMAT, encoding: 'raw', audio: int16ToBase64(chunk) },
     };
     if (this.firstFrame) {
       payload.common = { app_id: this.appId };
@@ -247,11 +370,12 @@ export class XfyunTranscriber implements MeetingTranscriber {
 
   private scheduleRotation() {
     if (this.rotationTimer) window.clearTimeout(this.rotationTimer);
-    this.rotationTimer = window.setTimeout(() => void this.rotateSession(), 50_000);
+    this.rotationTimer = window.setTimeout(() => void this.rotateSession(), SESSION_ROTATION_MS);
   }
 
   private async rotateSession() {
     if (this.stopping) return;
+    this.captureEnabled = false;
     await this.endSocketSession();
     if (!this.stopping) await this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '轮换失败'));
   }
@@ -259,38 +383,87 @@ export class XfyunTranscriber implements MeetingTranscriber {
   private endSocketSession() {
     return new Promise<void>((resolve) => {
       const socket = this.socket;
-      if (!socket || socket.readyState !== WebSocket.OPEN) return resolve();
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        if (socket?.readyState === WebSocket.CONNECTING) {
+          this.sessionEpoch += 1;
+          try { socket.close(1000, 'cancelled'); } catch { /* already closed */ }
+        }
+        resolve();
+        return;
+      }
       this.waitingForFinal = true;
       if (this.rotationTimer) window.clearTimeout(this.rotationTimer);
-      const pending = new Int16Array(this.pending.splice(0, Math.min(640, this.pending.length)));
-      if (this.firstFrame) {
-        socket.send(JSON.stringify({
-          common: { app_id: this.appId },
-          business: { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: 10000 },
-          data: { status: 0, format: 'audio/L16;rate=16000', encoding: 'raw', audio: int16ToBase64(pending) },
-        }));
-        window.setTimeout(() => {
-          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ data: { status: 2, format: 'audio/L16;rate=16000', encoding: 'raw', audio: '' } }));
-        }, 40);
-      } else {
-        socket.send(JSON.stringify({ data: { status: 2, format: 'audio/L16;rate=16000', encoding: 'raw', audio: int16ToBase64(pending) } }));
+      this.rotationTimer = null;
+
+      const chunks: Int16Array[] = [];
+      while (this.availableSamples() > 0) chunks.push(this.takeSamples(FRAME_SAMPLES));
+      if (this.firstFrame && chunks.length === 0) {
+        socket.close(1000, 'empty session');
+        resolve();
+        return;
       }
+
+      const epoch = this.sessionEpoch;
+      let completed = false;
+      let sendTimer: number | null = null;
+      let finalTimer: number | null = null;
       const done = () => {
+        if (completed) return;
+        completed = true;
+        if (sendTimer) window.clearTimeout(sendTimer);
+        if (finalTimer) window.clearTimeout(finalTimer);
         socket.removeEventListener('close', done);
+        if (epoch === this.sessionEpoch) this.finishCurrentText();
         resolve();
       };
       socket.addEventListener('close', done, { once: true });
-      window.setTimeout(() => {
-        if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'final timeout');
-        done();
-      }, 3500);
+
+      const waitForProviderFinal = () => {
+        finalTimer = window.setTimeout(() => {
+          if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'final timeout');
+          done();
+        }, 3500);
+      };
+      const sendEmptyTerminal = () => {
+        if (completed || socket.readyState !== WebSocket.OPEN) return done();
+        socket.send(JSON.stringify({ data: { status: 2, format: AUDIO_FORMAT, encoding: 'raw', audio: '' } }));
+        waitForProviderFinal();
+      };
+      const sendChunk = (index: number) => {
+        if (completed || socket.readyState !== WebSocket.OPEN) return done();
+        const chunk = chunks[index];
+        const opening = this.firstFrame;
+        const last = index === chunks.length - 1;
+        const payload: Record<string, unknown> = {
+          data: { status: opening ? 0 : last ? 2 : 1, format: AUDIO_FORMAT, encoding: 'raw', audio: int16ToBase64(chunk) },
+        };
+        if (opening) {
+          payload.common = { app_id: this.appId };
+          payload.business = { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: 10000 };
+          this.firstFrame = false;
+        }
+        socket.send(JSON.stringify(payload));
+        if (opening && last) sendTimer = window.setTimeout(sendEmptyTerminal, FRAME_INTERVAL_MS);
+        else if (last) waitForProviderFinal();
+        else sendTimer = window.setTimeout(() => sendChunk(index + 1), FRAME_INTERVAL_MS);
+      };
+
+      if (chunks.length) sendChunk(0);
+      else sendEmptyTerminal();
     });
   }
 
   private scheduleReconnect(reason: string) {
     if (this.stopping || this.reconnectTimer) return;
+    this.captureEnabled = false;
+    this.pending = [];
+    this.pendingOffset = 0;
+    this.resampler.reset();
     this.reconnectFailures += 1;
-    if (this.reconnectFailures >= 3) this.options.onError(`讯飞直连连续失败（${reason}），可切换同源 HTTP 转写。`);
+    if (this.reconnectFailures >= 4) {
+      this.failPermanently(`讯飞实时听写连续重连失败（${reason}）。请检查网络或讯飞 IP 白名单后重新开启麦克风。`);
+      return;
+    }
     this.options.onStatus('connecting');
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
@@ -298,13 +471,32 @@ export class XfyunTranscriber implements MeetingTranscriber {
     }, Math.min(3000, 500 * this.reconnectFailures));
   }
 
-  async stop() {
-    if (this.stopping) return;
-    this.stopping = true;
-    this.options.onStatus('finishing');
+  private clearTimers() {
     if (this.frameTimer) window.clearInterval(this.frameTimer);
     if (this.rotationTimer) window.clearTimeout(this.rotationTimer);
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.frameTimer = null;
+    this.rotationTimer = null;
+    this.reconnectTimer = null;
+  }
+
+  private failPermanently(message: string) {
+    if (this.stopping) return;
+    this.stopping = true;
+    this.captureEnabled = false;
+    this.clearTimers();
+    this.finishCurrentText();
+    this.options.onError(message);
+    this.releaseMedia();
+    this.options.onStatus('closed');
+  }
+
+  async stop() {
+    if (this.stopping) return;
+    this.stopping = true;
+    this.captureEnabled = false;
+    this.options.onStatus('finishing');
+    this.clearTimers();
     await this.endSocketSession();
     this.finishCurrentText();
     this.releaseMedia();
@@ -312,8 +504,15 @@ export class XfyunTranscriber implements MeetingTranscriber {
   }
 
   private releaseMedia() {
+    this.sessionEpoch += 1;
+    this.captureEnabled = false;
+    const socket = this.socket;
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      try { socket.close(1000, 'transcriber closed'); } catch { /* already closed */ }
+    }
     try { this.source?.disconnect(); } catch { /* disconnected */ }
     try { this.processor?.disconnect(); } catch { /* disconnected */ }
+    try { this.silentSink?.disconnect(); } catch { /* disconnected */ }
     if (this.processor) this.processor.onaudioprocess = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     if (this.audioContext && this.audioContext.state !== 'closed') void this.audioContext.close();
@@ -322,81 +521,6 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.audioContext = null;
     this.source = null;
     this.processor = null;
-  }
-}
-
-export class HttpChunkTranscriber implements MeetingTranscriber {
-  private options: TranscriberOptions;
-  private stream: MediaStream | null = null;
-  private recorder: MediaRecorder | null = null;
-  private stopped = false;
-  private completedText = '';
-  private loopPromise: Promise<void> | null = null;
-
-  constructor(options: TranscriberOptions) {
-    this.options = options;
-  }
-
-  async start() {
-    if (!window.MediaRecorder) throw new Error('当前浏览器不支持备用录音模式。');
-    this.options.onStatus('requesting');
-    this.stream = await requestMicrophone();
-    this.stopped = false;
-    this.options.onStatus('listening');
-    this.loopPromise = this.runLoop();
-  }
-
-  private async runLoop() {
-    while (!this.stopped && this.stream) {
-      try {
-        const blob = await this.recordChunk(4800);
-        if (blob.size < 800) continue;
-        const audioBase64 = await blobToBase64(blob);
-        const response = await fetch('/api/transcribe', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': this.options.accessToken },
-          body: JSON.stringify({ audioBase64, format: 'webm', language: 'zh' }),
-          signal: AbortSignal.timeout(45000),
-        });
-        const payload = await response.json().catch(() => ({})) as { text?: string; error?: string };
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-        const text = String(payload.text || '').trim();
-        if (text) {
-          this.completedText = `${this.completedText}${text}`.trim();
-          this.options.onPartial(this.completedText);
-          this.options.onFinal(this.completedText);
-        }
-      } catch (error) {
-        if (!this.stopped) this.options.onError(`备用转写失败：${error instanceof Error ? error.message : '未知错误'}。正在继续录音并重试。`);
-      }
-    }
-  }
-
-  private recordChunk(milliseconds: number) {
-    return new Promise<Blob>((resolve, reject) => {
-      if (!this.stream || this.stopped) return resolve(new Blob());
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const chunks: BlobPart[] = [];
-      const recorder = new MediaRecorder(this.stream, { mimeType });
-      this.recorder = recorder;
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-      recorder.onerror = () => reject(new Error('浏览器录音失败'));
-      recorder.onstop = () => {
-        this.recorder = null;
-        resolve(new Blob(chunks, { type: mimeType }));
-      };
-      recorder.start();
-      window.setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, milliseconds);
-    });
-  }
-
-  async stop() {
-    if (this.stopped) return;
-    this.stopped = true;
-    this.options.onStatus('finishing');
-    if (this.recorder?.state === 'recording') this.recorder.stop();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    await Promise.race([this.loopPromise || Promise.resolve(), new Promise((resolve) => window.setTimeout(resolve, 1200))]);
-    this.stream = null;
-    this.options.onStatus('closed');
+    this.silentSink = null;
   }
 }

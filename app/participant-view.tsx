@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HttpChunkTranscriber, XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
+import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
 
 type RoomSnapshot = {
@@ -29,7 +29,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
   const [participantId, setParticipantId] = useState('');
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [status, setStatus] = useState<TranscriberStatus | null>(null);
-  const [engine, setEngine] = useState<'iflytek' | 'http' | null>(null);
+  const [engine, setEngine] = useState<'iflytek' | null>(null);
   const [draft, setDraft] = useState('');
   const [manualText, setManualText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -113,18 +113,9 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       setEngine('iflytek');
     } catch (directError) {
       await direct.stop().catch(() => undefined);
-      const fallback = new HttpChunkTranscriber(callbacks);
-      transcriberRef.current = fallback;
-      try {
-        await fallback.start();
-        setMicActive(true);
-        setEngine('http');
-        setError(`讯飞直连未建立，已自动切换同源 HTTP 转写：${directError instanceof Error ? directError.message : '网络限制'}`);
-      } catch (fallbackError) {
-        transcriberRef.current = null;
-        setStatus('closed');
-        setError(`两条转写链路均未启动：${fallbackError instanceof Error ? fallbackError.message : '未知错误'}`);
-      }
+      transcriberRef.current = null;
+      setStatus('closed');
+      setError(`讯飞实时听写未启动：${directError instanceof Error ? directError.message : '连接失败'}`);
     }
   };
 
@@ -176,7 +167,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
         {error && <div className="service-error"><b>链路提示</b><span>{error}</span></div>}
         <div className="mic-actions">
           {micActive ? <button className="end-button" type="button" onClick={() => void stopMic()}>停止麦克风</button> : <button className="primary-action" type="button" disabled={room?.status !== 'live'} onClick={() => void startMic()}>开启麦克风</button>}
-          <span>{engine === 'iflytek' ? '讯飞 40ms 实时流' : engine === 'http' ? 'HTTP 云端转写兜底' : '双链路待命'}</span>
+          <span>{engine === 'iflytek' ? '讯飞实时听写中' : '讯飞听写待命'}</span>
         </div>
       </section>
       <section className="manual-card"><h3>无麦克风也能验收身份链路</h3><p>输入一句话会以你的已验证成员身份发送到主持台。</p><textarea rows={3} value={manualText} onChange={(event) => setManualText(event.target.value)} placeholder="例如：我建议先灰度百分之二十。" /><button type="button" onClick={() => void sendManual()} disabled={!manualText.trim() || room?.status !== 'live'}>发送到主持台</button></section>

@@ -1,24 +1,37 @@
 # 催催｜会中干预型会议助手
 
-催催不是会后才整理纪要的工具，而是在会议进行中识别偏题、时间风险和观点僵持，并给出可追溯的主持建议。
+催催不是等会议结束才写纪要，而是在会议进行中理解已经说完的内容，识别跑题、分歧和时间风险，再给出可执行、可追溯的主持建议。
 
-公网体验：<https://cuicui.iotaceti.top>
+公网演示：<https://cuicui.iotaceti.top>
 
-## 为什么这个 Demo 可信
+访问站点时会先进入全站密码页。密码由演示负责人单独提供，不写入仓库或文档。验证通过后，当前浏览器会话可直接使用演示功能，不设置额外的体验次数或时长限额。
 
-- 115 秒会议录音由 MiniMax Speech 2.8 HD 的五种音色逐句生成并混音，不是浏览器里的文字定时器。
-- 完整 master 与 15 段分句均实际通过科大讯飞 IAT；每帧 40ms / 1280 bytes，并保存终态响应。
-- 讯飞转写再进入本项目 `/api/analyze` 和 `/api/report`；已验证运行的 11 项检查全部通过。
-- 当前音频 SHA-256：`6ed60fdd3258ff6bbf0cf81b40976ed93c9bfa62ca6d3faabaec80d2384f77d1`。
-- 浏览器可直接查看 `/demo/verified-run.json`，追溯转写、模型来源、检查项与费用用量。
+## 当前演示主线
 
-## 三条体验路径
+首页的“开始演示会议”会进入一场 100 秒的“催催助手现场演示方案会”。会议里的团队正在讨论催催本身该怎么演给评委看，不需要额外解释业务背景。
 
-1. **真实实跑会议**：点击首页主按钮，播放真实录音；用“跳到下个触发点”快速查看干预，再生成报告。
-2. **真实多人会场**：创建会议并复制六位加入码；另一台设备用姓名/角色加入。说话人标签来自独立参与身份，不猜声纹。
-3. **单麦克风体验**：讯飞 WebSocket 实时听写；直连失败会切换到 OpenRouter HTTP STT。
+- 约 `00:21`：会议厅温度引出短暂闲聊，催催在相关发言转写完成后才提醒拉回议题。
+- 约 `00:57`：“多人模式要不要进本次演示”出现明确支持与反对，现场干预卡给出分歧依据。
+- 约 `01:14–01:15`：同一观点重复、范围仍未收敛，会议尚未到计划截止时间，催催已预测将超时并要求立即拍板。
+- `01:22` 之后：拍板单人链路、暂不开放多人入口，并明确讯飞直连、字幕时序和验收责任。
 
-公开接口使用两小时、IP 绑定的签名体验会话，并有单会话与全局额度；房间最多 12 人、240 段发言、6 小时后失效。OpenRouter 密钥与讯飞 APISecret 不下发；单麦克风直连模式只会收到限时的讯飞签名 WebSocket URL。
+字幕只在对应发言结束后出现，干预只在所需证据已经出现后触发。会议结束后，动态报告根据本次转写、干预和最终决策生成，而不是在开场时展示预写结果。
+
+## 可选的实时体验
+
+“使用麦克风实时体验”仅使用科大讯飞 IAT WebSocket 直连听写。如果浏览器权限、网络或讯飞连接失败，页面会明确告知失败原因，不会改用 HTTP 转写或伪造字幕兜底。
+
+多人协作链路暂未列入当前评审版。首页保留不可点击的“多人协作模式 · 即将开放”状态，演示时不要尝试创建房间或分享加入码。
+
+## 会议数据如何流动
+
+1. 稳定的会议录音按发言时间轴播放。
+2. 已完成的语音识别结果按每句真实结束时间逐条显示。
+3. 每次新转写都会连同议题和剩余时间进入会中分析。
+4. 只有证据足够时才新增干预，并显示“观察—影响—建议—判断依据”。
+5. 结束时使用完整转写和干预记录生成会议报告。
+
+为保持公网演示稳定，录音、转写和已验证分析可以按来源音频哈希缓存；缓存只复用同一份输入的实际运行结果。只要台词、TTS 文本或音色变化，录音生成就不会复用旧片段。
 
 ## 本地运行
 
@@ -32,7 +45,7 @@ mise run install
 mise run dev
 ```
 
-访问 <http://localhost:3000>。配置文件从 `.env.example` 复制为 `.env.local`；不要提交真实密钥。开发服务会持续占用当前终端，下面的检查请在另一个终端执行。
+访问 <http://localhost:3000>。将 `.env.example` 复制为 `.env.local`，并设置本地的 `SITE_ACCESS_PASSWORD`、会话签名参数和所需服务凭据；不要提交真实密钥。
 
 ```powershell
 mise run check
@@ -40,7 +53,7 @@ mise run build
 mise run smoke
 ```
 
-真实证据生成是显式任务，且会消耗受限额度：
+重建录音和验证证据是显式任务，会调用外部服务，仅在会议数据变更时执行：
 
 ```powershell
 mise run audio-generate
@@ -54,26 +67,24 @@ mise run audio-verify
 推送 `main` 后，GitHub Actions 会：
 
 1. 在 GitHub 托管 runner 上类型检查、构建并发布不可变 SHA 镜像到阿里云 ACR；
-2. 由名称/标签为 `cuicui-deploy` 的专用自托管 runner 校验服务器预置的版本化 Compose 配置，并使用服务器已有 ACR 凭证拉取镜像；
+2. 由名称/标签为 `cuicui-deploy` 的专用自托管 runner 校验服务器预置 Compose 配置，并使用服务器已有 ACR 凭据拉取镜像；
 3. 在 `/srv/docker/cuicui` 启动容器，并只映射 `127.0.0.1:8476`；
-4. 同时验证容器健康和公网 TLS/反向代理链路；失败时自动尝试回滚；
+4. 验证容器健康与公网 TLS/反向代理链路，失败时自动尝试回滚；
 5. 只清理同一 Cuicui ACR 仓库的旧镜像，并保留最近一个健康版本作为回滚点。
 
-仓库只需配置 `ACR_USERNAME`、`ACR_PASSWORD` 两个 Actions Secrets，值与向阳岛仓库现有的 Registry 登录名和专用密码一致；Cuicui 的 Registry 地址和独立镜像名是非敏感的版本化配置。服务器目录只保留不入库的 `.env`（ACR 镜像坐标）和 `app.env`（运行时密钥）；流水线不会改动该目录之外的业务文件。
-
-完整两分钟讲解词见 [DEMO_GUIDE.md](./DEMO_GUIDE.md)。
+演示讲解词见 [DEMO_GUIDE.md](./DEMO_GUIDE.md)。
 
 ## 主要目录
 
 ```text
 app/
-├─ api/                    # 受控 AI、讯飞、房间与健康接口
-├─ meeting-app.tsx         # 主持端：会前、会中、会后
-├─ participant-view.tsx    # 独立参与端
-├─ live-transcriber.ts     # 讯飞 40ms 流与 HTTP 兜底
-└─ server/demo-access.ts   # 签名体验会话与额度控制
-public/demo/               # 真实录音、manifest、verified-run
-scripts/                   # 音频生成、实证与公开 API 冒烟测试
+├─ access/                 # 全站访问密码页
+├─ api/                    # 讯飞、会中分析、报告与访问验证
+├─ meeting-app.tsx         # 单人演示、实时体验与会后报告
+├─ live-transcriber.ts     # 讯飞 40ms 音频帧直连，失败明确报错
+└─ server/                 # 全站 Cookie 验证与服务端访问控制
+public/demo/               # 演示录音、manifest 与已验证运行记录
+scripts/                   # 音频生成、证据验证与公开 API 检查
 ```
 
-接口依据：[科大讯飞流式语音听写](https://www.xfyun.cn/doc/asr/voicedictation/API.html)、[OpenRouter TTS](https://openrouter.ai/docs/guides/overview/multimodal/tts)、[OpenRouter STT](https://openrouter.ai/docs/guides/overview/multimodal/stt)。
+接口依据：[科大讯飞流式语音听写](https://www.xfyun.cn/doc/asr/voicedictation/API.html)、[OpenRouter TTS](https://openrouter.ai/docs/guides/overview/multimodal/tts)。
