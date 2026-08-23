@@ -1,0 +1,39 @@
+services:
+  app:
+    image: ${ACR_REGISTRY}/${ACR_IMAGE}:${IMAGE_TAG:?IMAGE_TAG must be a Git commit SHA}
+    container_name: cuicui
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./app.env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:8476:3000"
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - 1panel-network
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(response => response.json()).then(data => process.exit(data.ok && data.services?.openrouter && data.services?.iflytek ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  1panel-network:
+    external: true

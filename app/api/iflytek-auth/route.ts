@@ -1,3 +1,5 @@
+import { accessErrorResponse, authorizeDemo } from '../../server/demo-access';
+
 const encoder = new TextEncoder();
 
 function toBase64(value: ArrayBuffer | Uint8Array | string) {
@@ -13,7 +15,8 @@ function toBase64(value: ArrayBuffer | Uint8Array | string) {
   return btoa(binary);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  try { authorizeDemo(request, 'iflytek'); } catch (error) { return accessErrorResponse(error) || Response.json({ error: '讯飞鉴权暂不可用' }, { status: 500 }); }
   const appId = process.env.IFLYTEK_APP_ID;
   const apiKey = process.env.IFLYTEK_API_KEY;
   const apiSecret = process.env.IFLYTEK_API_SECRET;

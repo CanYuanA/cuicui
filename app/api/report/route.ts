@@ -1,3 +1,5 @@
+import { accessErrorResponse, authorizeDemo } from '../../server/demo-access';
+
 type ReportLine = {
   speakerId?: string;
   speaker?: string;
@@ -36,24 +38,75 @@ function parseContent(content: unknown) {
   return JSON.parse(content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as Record<string, unknown>;
 }
 
+function textValue(value: unknown, fallback = '') {
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (value && typeof value === 'object') {
+    const item = value as Record<string, unknown>;
+    const main = item.description || item.text || item.task || item.title || item.label || item.summary;
+    const rationale = item.rationale || item.reason;
+    return [main, rationale].filter((part) => typeof part === 'string' && part.trim()).join('：').slice(0, 500);
+  }
+  return fallback;
+}
+
+function stringList(value: unknown, limit: number) {
+  return (Array.isArray(value) ? value : []).map((item) => textValue(item)).filter(Boolean).slice(0, limit);
+}
+
+function normalizeNarrative(value: Record<string, unknown>, fallback: ReturnType<typeof fallbackNarrative>) {
+  const actions = (Array.isArray(value.actions) ? value.actions : []).map((item) => {
+    const action = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    return { owner: textValue(action.owner, '待认领').slice(0, 40), task: textValue(action.task || action.description, '跟进会议结论').slice(0, 220), due: textValue(action.due, '待确认').slice(0, 60) };
+  }).filter((item) => item.task).slice(0, 8);
+  return {
+    summary: textValue(value.summary, fallback.summary),
+    verdict: textValue(value.verdict, fallback.verdict),
+    necessity: textValue(value.necessity, fallback.necessity) === '有必要开' ? '有必要开' : '可考虑异步',
+    necessityReason: textValue(value.necessityReason, fallback.necessityReason),
+    decisions: stringList(value.decisions, 6).length ? stringList(value.decisions, 6) : fallback.decisions,
+    actions: actions.length ? actions : fallback.actions,
+    suggestions: stringList(value.suggestions, 5).length ? stringList(value.suggestions, 5) : fallback.suggestions,
+    attendanceAdvice: textValue(value.attendanceAdvice, fallback.attendanceAdvice),
+  };
+}
+
 function fallbackNarrative(input: ReportInput) {
   const attendees = input.meeting?.attendees || [];
   const transcript = input.transcript || [];
   const spoken = new Set(transcript.map((line) => line.speakerId).filter(Boolean));
   const silent = attendees.find((person) => person.id && !spoken.has(person.id));
+  const decisionLines = transcript.filter((line) => /(拍板|决定|决策|确认|就按|起步|自动升|自动回滚)/.test(String(line.text || '')));
+  const extractedActions: Array<{ owner: string; task: string; due: string }> = [];
+  for (const line of transcript) {
+    const text = String(line.text || '');
+    const due = text.match(/(周[一二三四五六日天](?:上午|下午|晚上)?\s*\d{1,2}(?::\d{1,2})?|明天|今天)/)?.[1] || '按会议约定';
+    for (const attendee of attendees) {
+      const name = String(attendee.name || '').trim();
+      const nameAt = name ? text.indexOf(name) : -1;
+      const dutyAt = nameAt >= 0 ? text.indexOf('负责', nameAt + name.length) : -1;
+      if (dutyAt < 0 || dutyAt - nameAt > 8) continue;
+      const nextPersonAt = attendees.map((other) => String(other.name || '')).filter((other) => other && other !== name).map((other) => text.indexOf(other, dutyAt + 2)).filter((index) => index > dutyAt).sort((a, b) => a - b)[0] ?? text.length;
+      const timeAt = text.search(/周[一二三四五六日天]|明天|今天/);
+      const end = timeAt > dutyAt ? Math.min(nextPersonAt, timeAt) : nextPersonAt;
+      const task = text.slice(dutyAt + 2, end).replace(/^[，,：:\s]+|[。；;\s]+$/g, '').trim();
+      if (task) extractedActions.push({ owner: name, task, due });
+    }
+  }
+  const hasDecision = decisionLines.length > 0 || input.events?.some((event) => event.type === 'decision');
   return {
     summary: `围绕“${input.meeting?.title || '会议主题'}”完成了一轮讨论。系统已保留关键转写与干预证据，可据此继续确认决策和待办。`,
-    verdict: input.events?.some((event) => event.type === 'decision') ? '这场会形成了决策，值得召开。' : '这场会完成了讨论，但决策还需要进一步明确。',
-    necessity: input.events?.some((event) => event.type === 'decision') ? '有必要开' : '可考虑异步',
-    necessityReason: input.events?.some((event) => event.type === 'decision') ? '讨论产生了明确决策或行动安排。' : '当前转写中尚未识别到清晰决策。',
-    decisions: [],
-    actions: [],
+    verdict: hasDecision ? '这场会形成了明确决策，值得召开。' : '这场会完成了讨论，但决策还需要进一步明确。',
+    necessity: hasDecision ? '有必要开' : '可考虑异步',
+    necessityReason: hasDecision ? '讨论产生了明确决策或行动安排。' : '当前转写中尚未识别到清晰决策。',
+    decisions: decisionLines.slice(-3).map((line) => String(line.text || '').trim()).filter(Boolean),
+    actions: extractedActions.slice(0, 8),
     suggestions: (input.events || []).slice(0, 3).map((event) => event.suggestion || '').filter(Boolean),
     attendanceAdvice: silent ? `${silent.name || '一位参会者'}未产生发言记录，下次可考虑异步接收纪要。` : '本次所有参会者均有发言记录。',
   };
 }
 
 export async function POST(request: Request) {
+  try { authorizeDemo(request, 'report'); } catch (error) { return accessErrorResponse(error) || Response.json({ error: '报告服务暂不可用' }, { status: 500 }); }
   let input: ReportInput;
   try { input = await request.json() as ReportInput; } catch { return Response.json({ error: '请求格式无效' }, { status: 400 }); }
   const transcript = (Array.isArray(input.transcript) ? input.transcript : []).slice(-160);
@@ -79,7 +132,15 @@ export async function POST(request: Request) {
   const hasDecision = events.some((event) => event.type === 'decision') || transcript.some((line) => /(决定|决策|就按|确认|行动项|负责)/.test(String(line.text || '')));
   const coverage = clamp(hasDecision ? 100 : 100 / agendaCount);
   const overall = clamp(.3 * punctuality + .3 * focus + .2 * balance + .2 * coverage);
-  const metrics = { overall, actualSeconds: actual, scores: [
+  const totalSpeakerTime = Math.max(1, values.reduce((sum, value) => sum + value, 0));
+  const speakerStats = speakerIds.map((id) => ({
+    id,
+    seconds: Math.round(speakerTime.get(id) || 0),
+    share: (speakerTime.get(id) || 0) / totalSpeakerTime * 100,
+    turns: transcript.filter((line) => (line.speakerId || line.speaker || 'unknown') === id).length,
+    interruptions: transcript.filter((line) => (line.speakerId || line.speaker || 'unknown') === id && (line as ReportLine & { interrupted?: boolean }).interrupted).length,
+  }));
+  const metrics = { overall, actualSeconds: actual, speakerStats, scores: [
     { key: 'punctuality', label: '准时率', value: punctuality, detail: actual <= planned ? '在计划时间内结束' : `超出计划 ${Math.round(actual - planned)} 秒` },
     { key: 'focus', label: '话题集中度', value: focus, detail: offTopicSeconds ? `约 ${Math.round(offTopicSeconds)} 秒偏题内容` : '未检测到明确偏题' },
     { key: 'balance', label: '发言均衡度', value: balance, detail: `${speakerIds.filter((id) => (speakerTime.get(id) || 0) > 0).length} 人产生有效发言` },
@@ -87,7 +148,7 @@ export async function POST(request: Request) {
   ] };
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_REPORT_MODEL || 'qwen/qwen3.7-plus';
+  const model = process.env.OPENROUTER_REPORT_MODEL || 'qwen/qwen3.5-flash-02-23';
   if (!apiKey || transcript.length === 0) return Response.json({ ...metrics, ...fallbackNarrative(input), source: 'local-fallback' });
 
   const transcriptText = transcript.map((line) => `${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 700)}`).join('\n').slice(-14000);
@@ -144,7 +205,8 @@ ${eventText || '无'}`;
       throw new Error(`OpenRouter ${response.status}: ${failure.error?.metadata?.raw || failure.error?.message || '请求失败'}`);
     }
     const result = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
-    return Response.json({ ...metrics, ...parseContent(result.choices?.[0]?.message?.content), source: 'openrouter', model, usage: result.usage || null });
+    const fallback = fallbackNarrative(input);
+    return Response.json({ ...metrics, ...normalizeNarrative(parseContent(result.choices?.[0]?.message?.content), fallback), source: 'openrouter', model, usage: result.usage || null });
   } catch (error) {
     return Response.json({ ...metrics, ...fallbackNarrative(input), source: 'local-fallback', degraded: true, reason: error instanceof Error ? error.message : 'AI 报告暂不可用' });
   }

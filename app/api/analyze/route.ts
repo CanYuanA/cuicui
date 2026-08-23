@@ -1,3 +1,5 @@
+import { accessErrorResponse, authorizeDemo } from '../../server/demo-access';
+
 type TranscriptInput = { speaker?: string; text?: string; at?: number };
 
 type AnalyzeInput = {
@@ -53,7 +55,34 @@ function parseContent(content: unknown) {
   return JSON.parse(cleaned) as Record<string, unknown>;
 }
 
+function normalizeEvents(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 2).map((item) => {
+    const event = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const evidenceText = `${event.topic || ''} ${event.observation || ''} ${event.reason || ''} ${event.reasoning || ''}`;
+    const suppliedType = String(event.type || '');
+    const type = eventTypes.includes(suppliedType as typeof eventTypes[number]) ? suppliedType
+      : /咖啡|闲聊|偏离|发散/.test(evidenceText) ? 'smalltalk'
+        : /分歧|僵持|争执|反对|不同意/.test(evidenceText) ? 'disagreement'
+          : /超时|剩余|时间/.test(evidenceText) ? 'time' : 'off_topic';
+    const suppliedSeverity = String(event.severity || 'warning');
+    const severity = ['info', 'warning', 'critical', 'success'].includes(suppliedSeverity) ? suppliedSeverity : event.critical ? 'critical' : 'warning';
+    const observation = String(event.observation || event.reason || event.reasoning || '检测到需要主持人关注的讨论信号。').slice(0, 260);
+    return {
+      type,
+      severity,
+      label: String(event.label || `△ 催一下 · ${type === 'smalltalk' ? '闲聊偏题' : type === 'disagreement' ? '观点分歧' : type === 'time' ? '时间风险' : '议题偏离'}`).slice(0, 60),
+      observation,
+      impact: String(event.impact || '可能压缩核心议题的决策时间。').slice(0, 240),
+      suggestion: String(event.suggestion || '请主持人确认当前议题并推动形成下一步。').slice(0, 240),
+      evidence: String(event.evidence || `AI 根据最近转写判断 · ${String(event.topic || '当前讨论').slice(0, 80)}`).slice(0, 240),
+      confidence: Math.max(0, Math.min(1, Number(event.confidence) || .72)),
+    };
+  });
+}
+
 export async function POST(request: Request) {
+  try { authorizeDemo(request, 'analyze'); } catch (error) { return accessErrorResponse(error) || Response.json({ error: '分析服务暂不可用' }, { status: 500 }); }
   let input: AnalyzeInput;
   try {
     input = await request.json() as AnalyzeInput;
@@ -161,7 +190,7 @@ ${transcriptText}`;
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
     const parsed = parseContent(result.choices?.[0]?.message?.content);
-    return Response.json({ ...parsed, source: 'openrouter', model, usage: result.usage || null });
+    return Response.json({ ...parsed, events: normalizeEvents(parsed.events), source: 'openrouter', model, usage: result.usage || null });
   } catch (error) {
     const fallback = fallbackAnalysis(input);
     return Response.json({ ...fallback, degraded: true, reason: error instanceof Error ? error.message : 'AI 服务暂时不可用' });

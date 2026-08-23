@@ -1,0 +1,223 @@
+name: Build and deploy Cuicui
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cuicui-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check, build, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build production application
+        run: |
+          npm run check
+          npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Alibaba Cloud Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Update production service
+    needs: build
+    runs-on:
+      - self-hosted
+      - cuicui-deploy
+    environment:
+      name: production
+      url: https://cuicui.iotaceti.top
+    env:
+      APP_DIRECTORY: /srv/docker/cuicui
+      DOCKER_CONFIG: /srv/docker/cuicui/.docker
+      PUBLIC_HEALTH_URL: https://cuicui.iotaceti.top/api/health
+    steps:
+      - name: Check out deployment configuration
+        uses: actions/checkout@v4
+
+      - name: Validate and install versioned Compose configuration
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -d "$APP_DIRECTORY"
+          test -f "$APP_DIRECTORY/.env"
+          test -f "$APP_DIRECTORY/app.env"
+          install -m 0640 docker-compose.prod.yml "$APP_DIRECTORY/docker-compose.yml.next"
+          cd "$APP_DIRECTORY"
+          IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.yml.next config --quiet
+          mv docker-compose.yml.next docker-compose.yml
+
+      - name: Log in to ACR for the server pull
+        shell: bash
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$DOCKER_CONFIG"
+          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" --username "$ACR_USERNAME" --password-stdin
+
+      - name: Pull, start, and verify immutable image
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -f "$APP_DIRECTORY/docker-compose.yml"
+          test -f "$APP_DIRECTORY/.env"
+          test -f "$APP_DIRECTORY/app.env"
+          cd "$APP_DIRECTORY"
+
+          wait_for_health() {
+            local candidate="$1"
+            local container_status="unknown"
+            local health_status="starting"
+            for attempt in $(seq 1 36); do
+              container_status="$(docker inspect --format '{{.State.Status}}' "$candidate")" || return 1
+              health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$candidate")" || return 1
+              if [ "$health_status" = "healthy" ]; then return 0; fi
+              if [ "$health_status" = "missing" ] || [ "$health_status" = "unhealthy" ] || [ "$container_status" != "running" ]; then return 1; fi
+              sleep 5
+            done
+            return 1
+          }
+
+          previous_image_ref=""
+          if docker inspect cuicui >/dev/null 2>&1; then
+            previous_image_ref="$(docker inspect --format '{{.Config.Image}}' cuicui)"
+          fi
+          target_image_ref="$(docker compose config --images | head -n 1)"
+          repository="$(printf '%s' "$target_image_ref" | sed 's/:[^:]*$//')"
+          test "$target_image_ref" = "$repository:$IMAGE_TAG"
+
+          rollback() {
+            if [ -z "$previous_image_ref" ] || [[ "$previous_image_ref" != "$repository:"* ]]; then
+              echo "No eligible previous Cuicui image is available for rollback." >&2
+              return 1
+            fi
+            local previous_tag
+            local rollback_container
+            previous_tag="$(printf '%s' "$previous_image_ref" | sed 's/^.*://')"
+            echo "Rolling back to the previous Cuicui image." >&2
+            IMAGE_TAG="$previous_tag" docker compose up --detach --no-build --remove-orphans app
+            rollback_container="$(IMAGE_TAG="$previous_tag" docker compose ps --all --quiet app)"
+            test -n "$rollback_container"
+            wait_for_health "$rollback_container"
+          }
+
+          docker compose pull app
+          docker compose up --detach --no-build --remove-orphans app
+
+          container_id="$(docker compose ps --all --quiet app)"
+          test -n "$container_id"
+          if ! wait_for_health "$container_id"; then
+            docker compose logs --no-color --tail=120 app || true
+            echo "The new Cuicui container did not become healthy." >&2
+            rollback || true
+            exit 1
+          fi
+
+          public_healthy=false
+          for attempt in $(seq 1 18); do
+            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true' >/dev/null; then
+              public_healthy=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$public_healthy" != "true" ]; then
+            echo "The public TLS/reverse-proxy health check failed." >&2
+            rollback || true
+            exit 1
+          fi
+
+      - name: Remove only unused older Cuicui images
+        if: ${{ success() }}
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd "$APP_DIRECTORY"
+          container_id="$(docker compose ps --all --quiet app)"
+          test -n "$container_id"
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$container_id")" = "healthy"
+          current_image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
+          current_image_ref="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$current_image_id")" = "cuicui"
+          [[ "$current_image_ref" == *":$IMAGE_TAG" ]]
+          repository="${current_image_ref%:*}"
+
+          declare -A referenced_images=()
+          while IFS= read -r used_container_id; do
+            [ -n "$used_container_id" ] || continue
+            referenced_images["$(docker inspect --format '{{.Image}}' "$used_container_id")"]=1
+          done < <(docker ps --all --quiet)
+
+          removed=0
+          rollback_kept=false
+          while read -r image_ref image_id; do
+            [ -n "${image_ref:-}" ] && [ -n "${image_id:-}" ] || continue
+            [ "$image_id" != "$current_image_id" ] || continue
+            [ -z "${referenced_images[$image_id]:-}" ] || continue
+            image_title="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$image_id")"
+            if [ "$image_title" != "cuicui" ]; then
+              echo "Keeping $image_ref because its project label is not Cuicui." >&2
+              continue
+            fi
+            if [ "$rollback_kept" = "false" ]; then
+              echo "Keeping $image_ref as the single rollback image."
+              rollback_kept=true
+              continue
+            fi
+            if docker image rm "$image_ref"; then removed=$((removed + 1)); fi
+          done < <(docker image ls --no-trunc --filter "reference=${repository}:*" --format '{{.Repository}}:{{.Tag}} {{.ID}}')
+          echo "Removed $removed older Cuicui image tag(s), kept at most one rollback image, and touched no other repository."
+
+      - name: Remove transient ACR login
+        if: ${{ always() }}
+        shell: bash
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+        run: docker logout "$ACR_REGISTRY" >/dev/null 2>&1 || true

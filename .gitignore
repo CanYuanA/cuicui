@@ -1,5 +1,7 @@
 # dependencies
 /node_modules
+/.mise-data/
+/.npm-cache/
 /.pnp
 .pnp.*
 .yarn/*
@@ -28,6 +30,10 @@ yarn-error.log*
 
 # local environment
 .env*
+!.env.example
+/app.env
+/.npmrc
+*.key
 
 # deployment and generated files
 .vercel
@@ -36,4 +42,8 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/public/demo/segments/
+/public/demo/stems/
+/public/demo/evidence/
+/public/demo/meeting-master-asr.wav
 *.tsbuildinfo
