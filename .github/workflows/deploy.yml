@@ -12,7 +12,6 @@ permissions:
 env:
   ACR_REGISTRY: crpi-37e2y9am4lxuf5l4.cn-beijing.personal.cr.aliyuncs.com
   ACR_IMAGE: canyuan/cuicui
-  ACR_REGION: cn-beijing
 
 concurrency:
   group: cuicui-production
@@ -44,12 +43,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Alibaba Cloud Container Registry
-        uses: aliyun/acr-login@v1
+        uses: docker/login-action@v3
         with:
-          login-server: ${{ env.ACR_REGISTRY }}
-          region-id: ${{ env.ACR_REGION }}
-          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Build and push immutable image
         uses: docker/build-push-action@v6
@@ -95,12 +93,11 @@ jobs:
           mv docker-compose.yml.next docker-compose.yml
 
       - name: Log in to ACR for the server pull
-        uses: aliyun/acr-login@v1
+        uses: docker/login-action@v3
         with:
-          login-server: ${{ env.ACR_REGISTRY }}
-          region-id: ${{ env.ACR_REGION }}
-          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Pull, start, and verify immutable image
         shell: bash
