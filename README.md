@@ -59,7 +59,7 @@ mise run audio-verify
 4. 同时验证容器健康和公网 TLS/反向代理链路；失败时自动尝试回滚；
 5. 只清理同一 Cuicui ACR 仓库的旧镜像，并保留最近一个健康版本作为回滚点。
 
-仓库需配置 `ACR_REGISTRY`、`ACR_IMAGE`、`ACR_USERNAME`、`ACR_PASSWORD` 四个 Actions Secrets。服务器目录只保留不入库的 `.env`（ACR 镜像坐标）和 `app.env`（运行时密钥）；流水线不会改动该目录之外的业务文件。
+仓库只需配置 `ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET` 两个 Actions Secrets；流水线通过阿里云官方 Action 换取临时 ACR 凭据。服务器目录只保留不入库的 `.env`（ACR 镜像坐标）和 `app.env`（运行时密钥）；流水线不会改动该目录之外的业务文件。
 
 完整两分钟讲解词见 [DEMO_GUIDE.md](./DEMO_GUIDE.md)。
 

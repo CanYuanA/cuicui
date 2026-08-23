@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  ACR_REGISTRY: crpi-37e2y9am4lxuf5l4.cn-beijing.personal.cr.aliyuncs.com
+  ACR_IMAGE: canyuan/cuicui
+  ACR_REGION: cn-beijing
+
 concurrency:
   group: cuicui-production
   cancel-in-progress: false
@@ -39,11 +44,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Alibaba Cloud Container Registry
-        uses: docker/login-action@v3
+        uses: aliyun/acr-login@v1
         with:
-          registry: ${{ secrets.ACR_REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          login-server: ${{ env.ACR_REGISTRY }}
+          region-id: ${{ env.ACR_REGION }}
+          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
       - name: Build and push immutable image
         uses: docker/build-push-action@v6
@@ -52,7 +58,7 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          tags: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_IMAGE }}:${{ github.sha }}
+          tags: ${{ env.ACR_REGISTRY }}/${{ env.ACR_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -82,21 +88,19 @@ jobs:
           test -d "$APP_DIRECTORY"
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
+          install -d -m 0700 "$DOCKER_CONFIG"
           install -m 0640 docker-compose.prod.yml "$APP_DIRECTORY/docker-compose.yml.next"
           cd "$APP_DIRECTORY"
           IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.yml.next config --quiet
           mv docker-compose.yml.next docker-compose.yml
 
       - name: Log in to ACR for the server pull
-        shell: bash
-        env:
-          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
-          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
-        run: |
-          set -euo pipefail
-          install -d -m 0700 "$DOCKER_CONFIG"
-          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" --username "$ACR_USERNAME" --password-stdin
+        uses: aliyun/acr-login@v1
+        with:
+          login-server: ${{ env.ACR_REGISTRY }}
+          region-id: ${{ env.ACR_REGION }}
+          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
       - name: Pull, start, and verify immutable image
         shell: bash
@@ -218,6 +222,4 @@ jobs:
       - name: Remove transient ACR login
         if: ${{ always() }}
         shell: bash
-        env:
-          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
         run: docker logout "$ACR_REGISTRY" >/dev/null 2>&1 || true
