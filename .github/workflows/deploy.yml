@@ -74,23 +74,20 @@ jobs:
       DOCKER_CONFIG: /srv/docker/cuicui/.docker
       PUBLIC_HEALTH_URL: https://cuicui.iotaceti.top/api/health
     steps:
-      - name: Check out deployment configuration
-        uses: actions/checkout@v4
-
-      - name: Validate and install versioned Compose configuration
+      - name: Validate preprovisioned production configuration
         shell: bash
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
+          echo "runner_host=$(hostname) runner_user=$(id -un)"
           test -d "$APP_DIRECTORY"
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
+          test -f "$APP_DIRECTORY/docker-compose.yml"
           install -d -m 0700 "$DOCKER_CONFIG"
-          install -m 0640 docker-compose.prod.yml "$APP_DIRECTORY/docker-compose.yml.next"
           cd "$APP_DIRECTORY"
-          IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.yml.next config --quiet
-          mv docker-compose.yml.next docker-compose.yml
+          IMAGE_TAG="$IMAGE_TAG" docker compose config --quiet
 
       - name: Log in to ACR for the server pull
         uses: docker/login-action@v3

@@ -54,7 +54,7 @@ mise run audio-verify
 推送 `main` 后，GitHub Actions 会：
 
 1. 在 GitHub 托管 runner 上类型检查、构建并发布不可变 SHA 镜像到阿里云 ACR；
-2. 由名称/标签为 `cuicui-deploy` 的专用自托管 runner 登录 ACR、同步版本化 Compose 配置并拉取镜像；
+2. 由名称/标签为 `cuicui-deploy` 的专用自托管 runner 校验服务器预置的版本化 Compose 配置、登录 ACR 并拉取镜像；
 3. 在 `/srv/docker/cuicui` 启动容器，并只映射 `127.0.0.1:8476`；
 4. 同时验证容器健康和公网 TLS/反向代理链路；失败时自动尝试回滚；
 5. 只清理同一 Cuicui ACR 仓库的旧镜像，并保留最近一个健康版本作为回滚点。
