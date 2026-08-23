@@ -432,7 +432,7 @@ function HostMeetingApp() {
   }, [screen, mode, config.attendees, showConfig, startMeeting, pauseMeeting, selectSpeaker]);
 
   return <>
-    <audio ref={audioRef} className="persistent-audio" preload="auto" src={verifiedRun?.audio.artifacts.master.path || '/demo/meeting-master.mp3'} />
+    <audio ref={audioRef} className="persistent-audio" preload="auto" src={verifiedRun?.audio.artifacts.master.path || '/demo/meeting-master-assistant-plan-v1.mp3'} />
     {screen === 'setup' && <SetupView config={config} health={health} verifiedRun={verifiedRun} verifiedError={verifiedError} onConfigure={() => setShowConfig(true)} onStart={(target) => void startMeeting(target)} />}
     {screen === 'meeting' && <MeetingView config={displayConfig} mode={mode} roomCode={roomSession?.code} roomCount={roomSnapshot?.participants.length} engine={engine} elapsed={elapsed} running={running} speed={speed} soundOn={soundOn} liveStatus={liveStatus} selectedSpeakerId={selectedSpeakerId} transcript={visibleTranscript} liveDraft={liveDraft} events={visibleEvents} actionState={actionState} parkingItems={parkingItems} error={error} verifiedRun={verifiedRun} onPause={pauseMeeting} onSpeed={changeSpeed} onSound={changeSound} onSkip={skipToNext} onEnd={() => void endMeeting()} onReset={resetSession} onSpeaker={selectSpeaker} onCommitDraft={commitDraft} onAction={handleAction} />}
     {screen === 'report' && <ReportView config={displayConfig} report={report} events={mode === 'verified' ? verifiedRun?.events || [] : liveEvents} loading={reportLoading} onReplay={() => void startMeeting('verified')} onReset={resetSession} />}

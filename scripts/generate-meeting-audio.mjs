@@ -10,7 +10,7 @@ const outputDir = join(root, 'public', 'demo');
 const segmentDir = join(outputDir, 'segments');
 const stemDir = join(outputDir, 'stems');
 const manifestPath = join(outputDir, 'audio-manifest.json');
-const masterPath = join(outputDir, 'meeting-master.mp3');
+const masterPath = join(outputDir, 'meeting-master-assistant-plan-v1.mp3');
 const asrPath = join(outputDir, 'meeting-master-asr.wav');
 
 function readEnv(path) {
@@ -151,7 +151,7 @@ async function main() {
     speakers: fixture.speakers.map(({ voice, volume, ...speaker }) => ({ ...speaker, voiceId: voice, mixVolume: volume })),
     utterances: fixture.utterances.map((utterance, index) => ({ ...utterance, tts: utterance.tts || utterance.text, audio: segmentRecords[index] })),
     artifacts: {
-      master: { path: '/demo/meeting-master.mp3', sha256: sha256(masterPath), bytes: statSync(masterPath).size, durationSeconds: durationOf(masterPath) },
+      master: { path: '/demo/meeting-master-assistant-plan-v1.mp3', sha256: sha256(masterPath), bytes: statSync(masterPath).size, durationSeconds: durationOf(masterPath) },
       asrWav: { path: '/demo/meeting-master-asr.wav', sha256: sha256(asrPath), bytes: statSync(asrPath).size, format: '16kHz mono PCM16 WAV' },
       stems: Object.fromEntries(fixture.speakers.map((speaker) => {
         const path = join(stemDir, `${speaker.id}.mp3`);

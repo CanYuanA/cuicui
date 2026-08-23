@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "verifiedAt": "2026-08-23T19:50:38.702Z",
+  "verifiedAt": "2026-08-23T20:03:19.818Z",
   "provenance": {
     "kind": "real-pipeline-run",
     "statement": "录音由 MiniMax Speech 2.8 HD 逐角色生成并混音；每个真实音频片段和完整 master 均通过讯飞 IAT，随后调用本项目 analyze/report 接口。",
@@ -365,7 +365,7 @@
     ],
     "artifacts": {
       "master": {
-        "path": "/demo/meeting-master.mp3",
+        "path": "/demo/meeting-master-assistant-plan-v1.mp3",
         "sha256": "78d184e48d98b25772b681801af6d699ff5b82a71e2327f3f98dd521f81fac0e",
         "bytes": 1600748,
         "durationSeconds": 100.00999999999999
@@ -431,9 +431,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 817,
-        "completion_tokens": 572,
-        "total_tokens": 1389,
-        "cost": 0.000201825,
+        "completion_tokens": 580,
+        "total_tokens": 1397,
+        "cost": 0.000203905,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -442,9 +442,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.000201825,
+          "upstream_inference_cost": 0.000203905,
           "upstream_inference_prompt_cost": 0.000053105,
-          "upstream_inference_completions_cost": 0.00014872
+          "upstream_inference_completions_cost": 0.0001508
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -46292,7 +46292,7 @@
         "detail": "已识别决策或行动项"
       }
     ],
-    "summary": "会议旨在确定评委能看懂的单人演示主线并收敛首版范围。讨论中，郭产品建议从普通方案会场景切入，避免堆砌功能；王工提出需展示技术细节如实时转写及多人接入能力，但郭产品指出入口不稳定风险。周总最终拍板：演示主线聚焦‘听见提醒形成行动’的单人链路，隐藏多人入口，报告必须基于现场转写生成。王工负责讯飞直连与时间戳，承诺识别失败时明确报错；郭产品负责字幕与提醒节点，并约定验收时间。",
+    "summary": "会议旨在确定评委能看懂的单人演示主线并收敛首版范围。讨论初期，黄运营短暂偏离至环境话题，被主持人拉回。核心争议在于是否展示多人接入功能：王工坚持需展示以证明说话人区分能力，郭产品与周总主张收敛为单人链路以确保稳定性。最终由周总拍板决定隐藏多人入口，聚焦单人实时转写生成报告的主线。",
     "verdict": "这场会形成了明确决策，值得召开。",
     "necessity": "有必要开",
     "necessityReason": "讨论产生了明确决策或行动安排。",
@@ -46312,18 +46312,18 @@
       }
     ],
     "suggestions": [
-      "在关键决策时刻若出现非业务发散话题，主持人应温和打断并重申核心目标，确保议程节奏。",
-      "当技术实现细节引发直接对立且时间紧迫时，主持人应强制基于用户视角（如评委第一眼）进行二选一决策，避免陷入技术争论。",
-      "当计划时间使用超过70%而关键方案未收敛时，应立即冻结新增观点，明确决策标准并推动拍板。"
+      "在关键决策时刻（如16秒处），若出现非业务发散（如谈论环境温度），主持人应温和且立即打断，重申会议目标（如‘先聚焦主线逻辑’），防止议程节奏拖沓。",
+      "当技术细节争论导致议题无法收敛且时间紧迫时，主持人应强制基于核心视角（如‘评委第一眼’）进行二选一决策，避免陷入无休止的技术辩论。",
+      "当计划时间使用超过70%而关键方案仍未收敛时，主持人应立即冻结新增观点，明确决策标准并推动拍板。"
     ],
     "attendanceAdvice": "本次所有参会者均有发言记录。",
     "source": "openrouter",
     "model": "qwen/qwen3.5-flash-02-23",
     "usage": {
       "prompt_tokens": 817,
-      "completion_tokens": 572,
-      "total_tokens": 1389,
-      "cost": 0.000201825,
+      "completion_tokens": 580,
+      "total_tokens": 1397,
+      "cost": 0.000203905,
       "is_byok": false,
       "prompt_tokens_details": {
         "cached_tokens": 0,
@@ -46332,9 +46332,9 @@
         "video_tokens": 0
       },
       "cost_details": {
-        "upstream_inference_cost": 0.000201825,
+        "upstream_inference_cost": 0.000203905,
         "upstream_inference_prompt_cost": 0.000053105,
-        "upstream_inference_completions_cost": 0.00014872
+        "upstream_inference_completions_cost": 0.0001508
       },
       "completion_tokens_details": {
         "reasoning_tokens": 0,

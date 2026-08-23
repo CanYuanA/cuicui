@@ -307,7 +307,7 @@
   ],
   "artifacts": {
     "master": {
-      "path": "/demo/meeting-master.mp3",
+      "path": "/demo/meeting-master-assistant-plan-v1.mp3",
       "sha256": "78d184e48d98b25772b681801af6d699ff5b82a71e2327f3f98dd521f81fac0e",
       "bytes": 1600748,
       "durationSeconds": 100.00999999999999

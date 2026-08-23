@@ -280,8 +280,8 @@ async function main() {
     events,
     report,
     checks: {
-      audioExists: statSync(join(demoDir, 'meeting-master.mp3')).size > 1000,
-      audioHashMatches: sha256(join(demoDir, 'meeting-master.mp3')) === manifest.artifacts.master.sha256,
+      audioExists: statSync(join(demoDir, 'meeting-master-assistant-plan-v1.mp3')).size > 1000,
+      audioHashMatches: sha256(join(demoDir, 'meeting-master-assistant-plan-v1.mp3')) === manifest.artifacts.master.sha256,
       everyUtteranceRecognized: transcript.every((line) => line.text.trim().length > 0),
       iflytekEverySessionSucceeded: [...masterSessions, ...utteranceSessions].every((session) => session.messages.some((message) => message.code === 0 && message.data?.status === 2)),
       masterRecognized: normalizeChinese(masterText).length >= 80,
