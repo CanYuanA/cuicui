@@ -129,7 +129,9 @@ const beforeClosing = await requestJson(`/api/room?code=${encodeURIComponent(cre
   headers: { Authorization: `Bearer ${created.participantToken}` },
 });
 const closing = await requireRoomPost({ action: 'control', code: created.code, status: 'closing' }, created.hostToken);
-const closingDrainMs = Number(closing.room?.closeDeadline || 0) - Date.now();
+const closingDeadline = Number(closing.room?.closeDeadline || 0);
+const closingServerNow = Number(closing.room?.serverNow);
+const configuredClosingDrainMs = closingDeadline - closingServerNow;
 const drainEventId = `drain-${crypto.randomUUID()}`;
 const drained = await requireRoomPost({
   action: 'utterance',
@@ -175,7 +177,9 @@ const checks = {
   staleSequenceDidNotOverwrite: stale.utterance?.seq === 2 && stale.utterance?.text === '这是一段已经稳定的多人发言。' && finalRows[0]?.text === '这是一段已经稳定的多人发言。',
   participantBurstRateProtected: rateAccepted.length === 40 && rateRejected.length === 5 && rateRejected.every((item) => Number(item.response.headers.get('retry-after')) >= 1),
   existingEventUpdatesUseOneRow: rateRows.length === 1,
-  closingExposedDeadline: closing.room?.status === 'closing' && closingDrainMs >= 11_000 && closingDrainMs <= 12_500,
+  closingExposedDeadline: closing.room?.status === 'closing'
+    && Number.isFinite(closingServerNow)
+    && configuredClosingDrainMs >= 11_500 && configuredClosingDrainMs <= 12_500,
   closingAcceptedFinal: drained.utterance?.final === true && drainRows.length === 1,
   endedReturnedFinalSnapshot: ended.room?.status === 'ended' && Number.isFinite(ended.room?.endedAt) && drainRows[0]?.text.includes('仍然被收拢'),
   endedRejectedNewUtterance: rejectedAfterEnd.response.status === 409,
@@ -188,6 +192,7 @@ console.log(JSON.stringify({
   baseUrl,
   participantCount: ended.room?.participants?.length,
   utteranceCount: ended.room?.utterances?.length,
+  timing: { configuredClosingDrainMs },
   checks,
 }, null, 2));
 if (!ok) process.exitCode = 1;

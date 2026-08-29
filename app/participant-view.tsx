@@ -114,6 +114,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
 
   const roomRevisionRef = useRef(0);
   const roomRef = useRef<RoomSnapshot | null>(null);
+  const serverClockRef = useRef<{ serverNow: number; receivedAt: number } | null>(null);
   const participantTokenRef = useRef('');
   const participantIdRef = useRef('');
   const transcriberRef = useRef<MeetingTranscriber | null>(null);
@@ -145,7 +146,10 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
 
   const relativeNow = useCallback(() => {
     const startedAt = roomRef.current?.startedAt;
-    return startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0;
+    const clock = serverClockRef.current;
+    if (!startedAt || !clock) return 0;
+    const estimatedServerNow = clock.serverNow + Math.max(0, performance.now() - clock.receivedAt);
+    return Math.max(0, (estimatedServerNow - startedAt) / 1000);
   }, []);
 
   const dropPendingPartials = useCallback((clientEventId?: string) => {
@@ -265,6 +269,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
   }, [enqueueUtterance, ensureSpeechEvent]);
 
   const acceptRoom = useCallback((snapshot: RoomSnapshot) => {
+    serverClockRef.current = { serverNow: snapshot.serverNow, receivedAt: performance.now() };
     roomRef.current = snapshot;
     roomRevisionRef.current = Math.max(roomRevisionRef.current, snapshot.revision);
     setRoom(snapshot);

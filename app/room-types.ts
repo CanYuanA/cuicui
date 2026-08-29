@@ -40,6 +40,7 @@ export type RoomSnapshot = {
   meeting: RoomMeeting;
   status: RoomStatus;
   revision: number;
+  serverNow: number;
   createdAt: number;
   startedAt: number | null;
   closeDeadline: number | null;

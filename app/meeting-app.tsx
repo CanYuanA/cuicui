@@ -59,8 +59,8 @@ function roomTranscript(room: RoomSnapshot | null, final: boolean) {
 }
 
 function roomOnlineParticipants(room: RoomSnapshot | null) {
-  const now = Date.now();
-  return (room?.participants || []).filter((person) => person.online !== false && !person.left_at && now - person.last_seen <= ROOM_ONLINE_WINDOW_MS);
+  if (!room) return [];
+  return room.participants.filter((person) => person.online !== false && !person.left_at && room.serverNow - person.last_seen <= ROOM_ONLINE_WINDOW_MS);
 }
 
 function serviceLabel(health: ServiceHealth | null) {
@@ -354,6 +354,7 @@ function HostMeetingApp() {
   const roomRevisionRef = useRef(0);
   const roomSessionRef = useRef<RoomSession | null>(null);
   const roomSnapshotRef = useRef<RoomSnapshot | null>(null);
+  const roomServerClockRef = useRef<{ serverNow: number; monotonicAt: number } | null>(null);
   const roomUploadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const roomUploadFailureRef = useRef<Error | null>(null);
   const roomLatestPartialSeqRef = useRef(new Map<string, number>());
@@ -385,6 +386,19 @@ function HostMeetingApp() {
     errorSourceRef.current = null;
     setError(null);
   }, []);
+  const roomServerNow = useCallback(() => {
+    const clock = roomServerClockRef.current;
+    if (clock) return clock.serverNow + (performance.now() - clock.monotonicAt);
+    return roomSnapshotRef.current?.serverNow || 0;
+  }, []);
+  const acceptRoomSnapshot = useCallback((snapshot: RoomSnapshot) => {
+    if (snapshot.revision < roomRevisionRef.current && roomSnapshotRef.current) return roomSnapshotRef.current;
+    roomServerClockRef.current = { serverNow: snapshot.serverNow, monotonicAt: performance.now() };
+    roomRevisionRef.current = snapshot.revision;
+    roomSnapshotRef.current = snapshot;
+    setRoomSnapshot(snapshot);
+    return snapshot;
+  }, []);
   const elapsedRef = useRef(0);
   const selectedSpeakerRef = useRef('host');
   const fullRecognitionRef = useRef('');
@@ -402,7 +416,6 @@ function HostMeetingApp() {
   useEffect(() => { liveLinesRef.current = liveLines; }, [liveLines]);
   useEffect(() => { selectedSpeakerRef.current = selectedSpeakerId; }, [selectedSpeakerId]);
   useEffect(() => { roomSessionRef.current = roomSession; }, [roomSession]);
-  useEffect(() => { roomSnapshotRef.current = roomSnapshot; }, [roomSnapshot]);
   useEffect(() => {
     const timer = window.setTimeout(() => { try {
       const saved = JSON.parse(sessionStorage.getItem(ROOM_HOST_STORAGE_KEY) || 'null') as Partial<RoomSession> | null;
@@ -432,22 +445,21 @@ function HostMeetingApp() {
             try { sessionStorage.removeItem(ROOM_HOST_STORAGE_KEY); } catch { /* storage is optional */ }
             roomSessionRef.current = null;
             roomSnapshotRef.current = null;
+            roomServerClockRef.current = null;
             if (!cancelled) { setRoomSession(null); setRoomSnapshot(null); }
           }
           throw new Error(payload.error || `HTTP ${response.status}`);
         }
         if (!cancelled) clearScopedError('room-sync');
         if (!cancelled && payload.room && payload.room.revision >= roomRevisionRef.current) {
-          roomRevisionRef.current = payload.room.revision;
-          roomSnapshotRef.current = payload.room;
-          setRoomSnapshot(payload.room);
+          const acceptedRoom = acceptRoomSnapshot(payload.room);
           if (mode === 'room') {
-            const finalLines = roomTranscript(payload.room, true);
+            const finalLines = roomTranscript(acceptedRoom, true);
             liveLinesRef.current = finalLines;
             setLiveLines(finalLines);
-            setRoomDraftLines(roomTranscript(payload.room, false));
-            setRoomClosing(payload.room.status === 'closing');
-            if (payload.room.status === 'closing' || payload.room.status === 'ended') setRunning(false);
+            setRoomDraftLines(roomTranscript(acceptedRoom, false));
+            setRoomClosing(acceptedRoom.status === 'closing');
+            if (acceptedRoom.status === 'closing' || acceptedRoom.status === 'ended') setRunning(false);
           }
         }
       } catch (reason) { if (!cancelled) showScopedError('room-sync', controller.signal.aborted ? '会场同步超时，正在自动重试。' : reason instanceof Error ? reason.message : '会场同步失败'); }
@@ -456,7 +468,7 @@ function HostMeetingApp() {
     void poll();
     const timer = window.setInterval(() => void poll(), 1000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [roomSession, mode, clearScopedError, showScopedError]);
+  }, [roomSession, mode, acceptRoomSnapshot, clearScopedError, showScopedError]);
 
   const displayConfig = useMemo(() => {
     if (mode === 'room' && roomSnapshot) {
@@ -470,9 +482,9 @@ function HostMeetingApp() {
   const roomElapsedNow = useCallback(() => {
     const snapshot = roomSnapshotRef.current;
     if (!snapshot?.startedAt) return Math.max(0, elapsedRef.current);
-    const endpoint = snapshot.endedAt || Date.now();
+    const endpoint = snapshot.endedAt || roomServerNow();
     return Math.max(0, (endpoint - snapshot.startedAt) / 1000);
-  }, []);
+  }, [roomServerNow]);
 
   const enqueueRoomUpload = useCallback((upload: RoomUpload) => {
     const session = roomSessionRef.current;
@@ -678,10 +690,14 @@ function HostMeetingApp() {
         joinUrl: roomJoinUrl(code),
       };
       if (!session.hostToken || !session.participantToken || !session.participantId) throw new Error('服务端没有返回完整的主持凭证。');
+      const createdRoom = payload.room as RoomSnapshot | undefined;
+      if (!createdRoom) throw new Error('服务端没有返回新会场状态。');
       roomSessionRef.current = session;
       roomRevisionRef.current = 0;
+      roomSnapshotRef.current = null;
+      roomServerClockRef.current = null;
       setRoomSession(session);
-      setRoomSnapshot(null);
+      acceptRoomSnapshot(createdRoom);
       setRoomCopied(false);
       sessionStorage.setItem(ROOM_HOST_STORAGE_KEY, JSON.stringify(session));
     } catch (reason) {
@@ -689,7 +705,7 @@ function HostMeetingApp() {
     } finally {
       setRoomLoading(false);
     }
-  }, [clearAllErrors]);
+  }, [acceptRoomSnapshot, clearAllErrors]);
 
   const copyRoomLink = useCallback(async () => {
     const session = roomSessionRef.current;
@@ -775,24 +791,21 @@ function HostMeetingApp() {
         const response = await fetch(`/api/room?code=${encodeURIComponent(session.code)}`, { cache: 'no-store', headers: { Authorization: `Bearer ${session.participantToken}` } });
         const payload = await response.json() as { room?: RoomSnapshot; error?: string };
         if (!response.ok || !payload.room) throw new Error(payload.error || '无法读取会场状态');
-        snapshot = payload.room;
+        snapshot = acceptRoomSnapshot(payload.room);
       }
       if (snapshot.status === 'waiting') {
         const payload = await postRoom({ action: 'control', code: session.code, status: 'live' }, session.hostToken) as { room?: RoomSnapshot };
         if (!payload.room) throw new Error('服务端没有返回已启动会场。');
-        snapshot = payload.room;
+        snapshot = acceptRoomSnapshot(payload.room);
       }
       if (snapshot.status !== 'live') throw new Error(snapshot.status === 'closing' ? '会议正在收尾，不能重新进入。' : '会议已经结束，请创建一场新会议。');
-      roomSnapshotRef.current = snapshot;
-      roomRevisionRef.current = snapshot.revision;
-      setRoomSnapshot(snapshot);
       const finalLines = roomTranscript(snapshot, true);
       liveLinesRef.current = finalLines;
       setLiveLines(finalLines);
       setRoomDraftLines(roomTranscript(snapshot, false));
       setMode('room');
       setScreen('meeting');
-      setElapsed(snapshot.startedAt ? Math.max(0, (Date.now() - snapshot.startedAt) / 1000) : 0);
+      setElapsed(snapshot.startedAt ? roomElapsedNow() : 0);
       setRunning(true);
       setRoomClosing(false);
       setLiveDraft('');
@@ -810,7 +823,7 @@ function HostMeetingApp() {
     } finally {
       setRoomLoading(false);
     }
-  }, [clearAllErrors, clearScopedError, showScopedError]);
+  }, [acceptRoomSnapshot, clearAllErrors, clearScopedError, roomElapsedNow, showScopedError]);
 
   useEffect(() => {
     if (screen !== 'meeting' || mode === 'verified') return;
@@ -884,9 +897,6 @@ function HostMeetingApp() {
     setRoomEndInFlight(true);
     setRoomClosing(false);
     setRunning(false);
-    roomSnapshotRef.current = finalSnapshot;
-    roomRevisionRef.current = finalSnapshot.revision;
-    setRoomSnapshot(finalSnapshot);
     const lines = roomTranscript(finalSnapshot, true);
     liveLinesRef.current = lines;
     setLiveLines(lines);
@@ -900,7 +910,7 @@ function HostMeetingApp() {
       prioritySpeakerId: attendees.find((person) => person.isPriority)?.id || attendees[0]?.id || reportBase.prioritySpeakerId,
     };
     const actualSeconds = finalSnapshot.startedAt
-      ? Math.max(1, ((finalSnapshot.endedAt || Date.now()) - finalSnapshot.startedAt) / 1000)
+      ? Math.max(1, ((finalSnapshot.endedAt || roomServerNow()) - finalSnapshot.startedAt) / 1000)
       : Math.max(1, lines.at(-1)?.end || elapsedRef.current);
     setElapsed(actualSeconds);
     setReportLoading(true);
@@ -924,7 +934,7 @@ function HostMeetingApp() {
       roomEndInFlightRef.current = false;
       setRoomEndInFlight(false);
     }
-  }, [buildStats, clearScopedError, config, liveEvents, verifiedRun]);
+  }, [buildStats, clearScopedError, config, liveEvents, roomServerNow, verifiedRun]);
 
   const endMeeting = useCallback(async () => {
     if (screen !== 'meeting') return;
@@ -942,10 +952,8 @@ function HostMeetingApp() {
       try {
         const closingPayload = await postRoom({ action: 'control', code: session.code, status: 'closing' }, session.hostToken) as { room?: RoomSnapshot };
         if (!closingPayload.room) throw new Error('服务端没有返回收尾状态。');
-        roomSnapshotRef.current = closingPayload.room;
-        roomRevisionRef.current = closingPayload.room.revision;
-        setRoomSnapshot(closingPayload.room);
-        setRoomClosing(closingPayload.room.status === 'closing');
+        const closingSnapshot = acceptRoomSnapshot(closingPayload.room);
+        setRoomClosing(closingSnapshot.status === 'closing');
         clearScopedError('room-control');
         try {
           await stopRoomHostMic();
@@ -953,13 +961,14 @@ function HostMeetingApp() {
         } catch (reason) {
           showScopedError('room-upload', `${reason instanceof Error ? reason.message : '主持人最后一句未能完成同步'}；其余成员记录仍会正常收尾。`);
         }
-        if (closingPayload.room.status === 'ended') { await completeRoomReport(closingPayload.room); return; }
-        const closeDeadline = closingPayload.room.closeDeadline || Date.now();
-        const remaining = Math.max(0, Math.min(7000, closeDeadline - Date.now() + 120));
+        if (closingSnapshot.status === 'ended') { await completeRoomReport(closingSnapshot); return; }
+        const closeDeadline = closingSnapshot.closeDeadline || roomServerNow();
+        const remaining = Math.max(0, Math.min(7000, closeDeadline - roomServerNow() + 120));
         if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining));
         const endedPayload = await postRoom({ action: 'control', code: session.code, status: 'ended' }, session.hostToken) as { room?: RoomSnapshot };
-        const finalSnapshot = endedPayload.room;
-        if (!finalSnapshot || finalSnapshot.status !== 'ended') throw new Error('服务端未能返回最终会议记录，请重试结束会议。');
+        if (!endedPayload.room) throw new Error('服务端未能返回最终会议记录，请重试结束会议。');
+        const finalSnapshot = acceptRoomSnapshot(endedPayload.room);
+        if (finalSnapshot.status !== 'ended') throw new Error('服务端未能返回最终会议记录，请重试结束会议。');
         clearScopedError('room-control');
         await completeRoomReport(finalSnapshot);
       } catch (reason) {
@@ -990,7 +999,7 @@ function HostMeetingApp() {
       setReport({ ...EMPTY_REPORT, ...data, speakerStats: buildStats(lines, displayConfig.attendees), actualSeconds: Math.round(elapsedRef.current) });
     } catch { setReport({ ...EMPTY_REPORT, overall: 68, verdict: '会议内容已保存，AI 报告暂时不可用。', actualSeconds: Math.round(elapsedRef.current), speakerStats: buildStats(lines, displayConfig.attendees), summary: '实时转写已保留，可导出后继续整理。' }); }
     finally { setReportLoading(false); }
-  }, [screen, mode, verifiedRun, stopRoomHostMic, displayConfig, liveEvents, buildStats, clearScopedError, completeRoomReport, showScopedError]);
+  }, [screen, mode, verifiedRun, stopRoomHostMic, displayConfig, liveEvents, buildStats, acceptRoomSnapshot, clearScopedError, completeRoomReport, roomServerNow, showScopedError]);
 
   useEffect(() => {
     if (screen !== 'meeting' || mode !== 'room' || roomSnapshot?.status !== 'ended' || roomReportStartedRef.current) return;
@@ -1015,6 +1024,7 @@ function HostMeetingApp() {
     roomSeqRef.current = 0;
     roomSessionRef.current = null;
     roomSnapshotRef.current = null;
+    roomServerClockRef.current = null;
     roomRevisionRef.current = 0;
     sessionStorage.removeItem(ROOM_HOST_STORAGE_KEY);
     audioRef.current?.pause();

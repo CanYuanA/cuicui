@@ -357,6 +357,7 @@ function snapshot(database: DatabaseSync, room: RoomRow, now = Date.now()): Room
     meeting,
     status: room.status,
     revision: room.revision,
+    serverNow: now,
     createdAt: room.created_at,
     startedAt: room.started_at,
     closeDeadline: room.close_deadline,
