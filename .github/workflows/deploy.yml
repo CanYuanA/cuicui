@@ -72,9 +72,13 @@ jobs:
     env:
       APP_DIRECTORY: /srv/docker/cuicui
       PUBLIC_HEALTH_URL: https://cuicui.iotaceti.top/api/health
+      PUBLIC_ORIGIN: https://cuicui.iotaceti.top
     steps:
+      - name: Check out deployment assets
+        uses: actions/checkout@v4
+
       # Keep deployment independent of github.com: the ECS holds its Compose
-      # file and ACR credentials, while source checkout/build stays above.
+      # credentials, while the versioned Compose file comes from this commit.
       - name: Validate preprovisioned production configuration
         shell: bash
         env:
@@ -85,11 +89,12 @@ jobs:
           test -d "$APP_DIRECTORY"
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
-          test -f "$APP_DIRECTORY/docker-compose.yml"
+          test -f docker-compose.prod.yml
           grep -q '^SITE_ACCESS_PASSWORD=.' "$APP_DIRECTORY/app.env"
           grep -q '^DEMO_SESSION_SECRET=.' "$APP_DIRECTORY/app.env"
+          install -m 0640 docker-compose.prod.yml "$APP_DIRECTORY/docker-compose.yml.next"
           cd "$APP_DIRECTORY"
-          IMAGE_TAG="$IMAGE_TAG" docker compose config --quiet
+          IMAGE_TAG="$IMAGE_TAG" docker compose -f docker-compose.yml.next config --quiet
 
       - name: Pull, start, and verify immutable image
         shell: bash
@@ -98,9 +103,13 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$APP_DIRECTORY/docker-compose.yml"
+          test -f "$APP_DIRECTORY/docker-compose.yml.next"
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
           cd "$APP_DIRECTORY"
+
+          active_compose="$APP_DIRECTORY/docker-compose.yml"
+          next_compose="$APP_DIRECTORY/docker-compose.yml.next"
 
           wait_for_health() {
             local candidate="$1"
@@ -120,9 +129,6 @@ jobs:
           if docker inspect cuicui >/dev/null 2>&1; then
             previous_image_ref="$(docker inspect --format '{{.Config.Image}}' cuicui)"
           fi
-          target_image_ref="$(docker compose config --images | head -n 1)"
-          repository="$(printf '%s' "$target_image_ref" | sed 's/:[^:]*$//')"
-          test "$target_image_ref" = "$repository:$IMAGE_TAG"
 
           rollback() {
             if [ -z "$previous_image_ref" ] || [[ "$previous_image_ref" != "$repository:"* ]]; then
@@ -133,19 +139,36 @@ jobs:
             local rollback_container
             previous_tag="$(printf '%s' "$previous_image_ref" | sed 's/^.*://')"
             echo "Rolling back to the previous Cuicui image." >&2
-            IMAGE_TAG="$previous_tag" docker compose up --detach --no-build --remove-orphans app
-            rollback_container="$(IMAGE_TAG="$previous_tag" docker compose ps --all --quiet app)"
+            IMAGE_TAG="$previous_tag" docker compose --file "$active_compose" up --detach --no-build --remove-orphans app
+            rollback_container="$(IMAGE_TAG="$previous_tag" docker compose --file "$active_compose" ps --all --quiet app)"
             test -n "$rollback_container"
             wait_for_health "$rollback_container"
           }
 
-          docker compose pull app
-          docker compose up --detach --no-build --remove-orphans app
+          target_image_ref="$(docker compose --file "$next_compose" config --images | head -n 1)"
+          repository="$(printf '%s' "$target_image_ref" | sed 's/:[^:]*$//')"
+          test "$target_image_ref" = "$repository:$IMAGE_TAG"
 
-          container_id="$(docker compose ps --all --quiet app)"
-          test -n "$container_id"
+          docker compose --file "$next_compose" pull app
+          mkdir -p "$APP_DIRECTORY/data"
+          docker run --rm --user 0:0 \
+            -v "$APP_DIRECTORY/data:/data" \
+            "$target_image_ref" \
+            sh -c 'chown 1000:1001 /data && chmod 0770 /data'
+          if ! docker compose --file "$next_compose" up --detach --no-build --remove-orphans app; then
+            docker compose --file "$next_compose" logs --no-color --tail=120 app || true
+            echo "Starting the new Cuicui container failed." >&2
+            rollback || true
+            exit 1
+          fi
+
+          if ! container_id="$(docker compose --file "$next_compose" ps --all --quiet app)" || [ -z "$container_id" ]; then
+            echo "The new Cuicui container could not be located." >&2
+            rollback || true
+            exit 1
+          fi
           if ! wait_for_health "$container_id"; then
-            docker compose logs --no-color --tail=120 app || true
+            docker compose --file "$next_compose" logs --no-color --tail=120 app || true
             echo "The new Cuicui container did not become healthy." >&2
             rollback || true
             exit 1
@@ -161,6 +184,36 @@ jobs:
           done
           if [ "$public_healthy" != "true" ]; then
             echo "The public TLS/reverse-proxy health check failed." >&2
+            rollback || true
+            exit 1
+          fi
+
+          site_password="$(sed -n 's/^SITE_ACCESS_PASSWORD=//p' "$APP_DIRECTORY/app.env" | head -n 1)"
+          site_password="${site_password%$'\r'}"
+          if [[ "$site_password" == \"*\" ]] && [ "${#site_password}" -ge 2 ]; then
+            site_password="${site_password:1:${#site_password}-2}"
+          fi
+          if [ -z "$site_password" ]; then
+            echo "The site access password is unavailable for production verification." >&2
+            rollback || true
+            exit 1
+          fi
+          if ! docker run --rm \
+            --env BASE_URL="$PUBLIC_ORIGIN" \
+            --env SITE_ACCESS_PASSWORD="$site_password" \
+            --volume "$GITHUB_WORKSPACE/scripts/verify-room-api.mjs:/verify-room-api.mjs:ro" \
+            --entrypoint node \
+            "$target_image_ref" \
+            /verify-room-api.mjs; then
+            unset site_password
+            echo "The production room lifecycle verification failed." >&2
+            rollback || true
+            exit 1
+          fi
+          unset site_password
+
+          if ! mv "$next_compose" "$active_compose"; then
+            echo "The verified Compose configuration could not be activated." >&2
             rollback || true
             exit 1
           fi

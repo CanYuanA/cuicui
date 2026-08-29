@@ -429,3 +429,43 @@ button { color: inherit; }
   .participant-main { padding-top: 25px; }.join-card { padding: 22px; }.join-card h1 { font-size: 28px; }
   .report-provenance { grid-template-columns: 1fr; }.report-provenance code { overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* Multiplayer meeting refinements */
+.room-ready-card > p + p { margin-top: -2px; white-space: normal; line-height: 1.5; }
+.room-ready-card button:disabled, .compact-primary:disabled, .control-chip:disabled, .end-button:disabled { cursor: not-allowed; opacity: .48; }
+.room-live-banner.waiting b { color: var(--amber); }
+.room-live-banner.closing { border-color: rgba(255,200,87,.25); background: rgba(255,200,87,.055); }
+.room-live-banner.closing b { color: var(--amber); }
+.room-live-banner.ended { border-color: rgba(124,139,157,.2); background: rgba(124,139,157,.045); }
+.room-live-banner.ended b { color: #9aa7b8; }
+.room-status.closing i { background: var(--amber); box-shadow: 0 0 8px rgba(255,200,87,.55); }
+
+.participant-main > .room-live-banner { grid-column: 1 / -1; border: 1px solid rgba(168,240,90,.17); border-radius: 14px; }
+.participant-main > .room-live-banner b, .participant-main > .room-live-banner span { font-size: 12px; }
+.participant-main > .room-live-banner strong { font-size: 15px; }
+.participant-main > .room-live-banner strong { justify-self: end; }
+.join-card form { display: grid; }
+.join-card .field input { min-height: 46px; }
+.join-card .primary-action, .participant-header > button, .mic-actions button, .manual-card button { min-height: 44px; }
+.participant-title > p, .participant-title > div span, .room-status, .mic-card > p, .mic-actions span, .manual-card p, .participant-log p { font-size: 12px; }
+.participant-title > div span { line-height: 1.45; }
+.manual-card h3 { font-size: 15px; }
+.manual-card textarea { min-height: 92px; font-size: 14px; line-height: 1.55; }
+.manual-card button { font-size: 13px; }
+.participant-log > div:first-child p, .participant-log > div:first-child b { font-size: 12px; }
+.participant-log article { grid-template-columns: 42px 1fr auto; }
+.participant-log article time, .participant-log article span { font-size: 11px; }
+.participant-log article p { font-size: 13px; }
+
+@media (max-width: 760px) {
+  .meeting-controls .room-mic-control { display: inline-flex !important; align-items: center; }
+}
+
+@media (max-width: 560px) {
+  .participant-main > .room-live-banner { grid-template-columns: 1fr auto; gap: 5px 10px; padding: 12px 14px; }
+  .participant-main > .room-live-banner span { grid-column: 1 / -1; grid-row: 2; font-size: 11px; line-height: 1.5; }
+  .participant-main > .room-live-banner strong { grid-column: 2; grid-row: 1; }
+  .participant-main { width: min(100% - 24px, 920px); padding-bottom: 92px; }
+  .mic-card { min-height: 390px; padding: 34px 20px 22px; }
+  .manual-card, .participant-log { padding: 16px; }
+}

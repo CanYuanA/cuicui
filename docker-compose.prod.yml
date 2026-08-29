@@ -9,8 +9,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      CUICUI_ROOM_DB_PATH: /app/data/cuicui.sqlite
     ports:
       - "127.0.0.1:8476:3000"
+    volumes:
+      - ./data:/app/data
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 256

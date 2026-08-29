@@ -13,6 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "audio:generate": "node scripts/generate-meeting-audio.mjs",
     "audio:verify": "node scripts/verify-meeting-pipeline.mjs",
+    "room:verify": "node scripts/verify-room-api.mjs",
     "smoke:public": "node scripts/smoke-public-api.mjs"
   },
   "dependencies": {

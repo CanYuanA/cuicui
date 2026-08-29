@@ -8,6 +8,7 @@ node_modules
 dist
 .wrangler
 work
+data
 .env*
 app.env
 .npmrc

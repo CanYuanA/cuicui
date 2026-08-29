@@ -42,6 +42,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/data/
 /public/demo/segments/
 /public/demo/stems/
 /public/demo/evidence/

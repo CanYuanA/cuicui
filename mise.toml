@@ -24,3 +24,6 @@ run = "npm run audio:generate"
 
 [tasks.audio-verify]
 run = "npm run audio:verify"
+
+[tasks.room-verify]
+run = "npm run room:verify"
