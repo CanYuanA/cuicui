@@ -1,3 +1,5 @@
+import type { Intervention } from './demo-data';
+
 export type RoomStatus = 'waiting' | 'live' | 'closing' | 'ended';
 
 export type RoomMeeting = {
@@ -48,6 +50,7 @@ export type RoomSnapshot = {
   expiresAt: number;
   participants: Participant[];
   utterances: Utterance[];
+  interventions: Intervention[];
 };
 
 export type RoomSession = {

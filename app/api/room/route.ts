@@ -11,6 +11,7 @@ import type {
   Utterance,
   UtteranceSource,
 } from '../../room-types';
+import type { EventType, Intervention, Severity } from '../../demo-data';
 import { AccessError, clientIp, enforceRate } from '../../server/demo-access';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,7 @@ const ENDED_ROOM_TTL_MS = 60 * 60 * 1000;
 const CLOSE_DRAIN_MS = 12_000;
 const ONLINE_WINDOW_MS = 15_000;
 const MAX_UNIQUE_UTTERANCES = 2_400;
+const MAX_ROOM_INTERVENTIONS = 120;
 const UTTERANCE_RATE_WINDOW_MS = 10_000;
 const UTTERANCE_RATE_REQUESTS = 40;
 
@@ -65,6 +67,14 @@ type UtteranceRow = {
   seq: number;
   final: number;
   source: UtteranceSource;
+};
+
+type InterventionRow = {
+  id: string;
+  room_code: string;
+  at: number;
+  created_at: number;
+  event_json: string;
 };
 
 type SharedDatabase = { path: string; database: DatabaseSync };
@@ -145,6 +155,18 @@ function openDatabase() {
 
     CREATE INDEX IF NOT EXISTS utterances_room_order
       ON utterances(room_code, started_at, created_at);
+
+    CREATE TABLE IF NOT EXISTS room_interventions (
+      id TEXT NOT NULL,
+      room_code TEXT NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
+      at REAL NOT NULL,
+      created_at INTEGER NOT NULL,
+      event_json TEXT NOT NULL,
+      PRIMARY KEY (room_code, id)
+    );
+
+    CREATE INDEX IF NOT EXISTS room_interventions_room_order
+      ON room_interventions(room_code, at, created_at, id);
   `);
   shared[databaseKey] = { path, database };
   return database;
@@ -187,6 +209,49 @@ function cleanMeeting(value: unknown): RoomMeeting {
       .map((item) => cleanText(item, 160))
       .filter(Boolean)
       .slice(0, 8),
+  };
+}
+
+const interventionTypes = new Set<EventType>(['smalltalk', 'off_topic', 'interrupt', 'repeat', 'disagreement', 'time', 'decision']);
+const interventionSeverities = new Set<Severity>(['info', 'warning', 'critical', 'success']);
+
+function cleanIntervention(value: unknown, serverElapsed: number): Intervention {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const id = cleanText(record.id, 80);
+  const type = cleanText(record.type, 24) as EventType;
+  const severity = cleanText(record.severity, 16) as Severity;
+  if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) throw new AccessError(400, '提醒事件标识无效');
+  if (!interventionTypes.has(type)) throw new AccessError(400, '提醒类型无效');
+  if (!interventionSeverities.has(severity)) throw new AccessError(400, '提醒级别无效');
+
+  const label = cleanText(record.label, 60);
+  const observation = cleanText(record.observation, 360);
+  const impact = cleanText(record.impact, 360);
+  const suggestion = cleanText(record.suggestion, 360);
+  const evidence = cleanText(record.evidence, 360);
+  if (!label || !observation || !suggestion || !evidence) throw new AccessError(400, '提醒内容不完整');
+
+  const rawAt = Number(record.at);
+  const rawConfidence = Number(record.confidence);
+  const actions = (Array.isArray(record.actions) ? record.actions : [])
+    .filter((action): action is 'adopt' | 'park' | 'ignore' => action === 'adopt' || action === 'park' || action === 'ignore')
+    .slice(0, 3);
+  const voice = cleanText(record.voice, 360);
+  return {
+    id,
+    at: Math.max(0, Math.min(serverElapsed + 2, Number.isFinite(rawAt) ? rawAt : serverElapsed)),
+    type,
+    severity,
+    label,
+    observation,
+    impact,
+    suggestion,
+    evidence,
+    ...(Number.isFinite(rawConfidence) ? { confidence: Math.max(0, Math.min(1, rawConfidence)) } : {}),
+    ...(voice ? { voice } : {}),
+    ...(actions.length ? { actions } : {}),
   };
 }
 
@@ -310,6 +375,17 @@ function utteranceById(database: DatabaseSync, id: string) {
   `).get(id) || null) as UtteranceRow | null;
 }
 
+function interventionById(database: DatabaseSync, code: string, id: string) {
+  return (database.prepare(`
+    SELECT * FROM room_interventions WHERE room_code = ? AND id = ?
+  `).get(code, id) || null) as InterventionRow | null;
+}
+
+function toIntervention(row: InterventionRow): Intervention | null {
+  try { return JSON.parse(row.event_json) as Intervention; }
+  catch { return null; }
+}
+
 function toUtterance(row: UtteranceRow): Utterance {
   return {
     id: row.id,
@@ -341,6 +417,11 @@ function snapshot(database: DatabaseSync, room: RoomRow, now = Date.now()): Room
     WHERE utterances.room_code = ?
     ORDER BY utterances.started_at, utterances.created_at, utterances.id
   `).all(room.code) as unknown as UtteranceRow[];
+  const interventionRows = database.prepare(`
+    SELECT * FROM room_interventions
+    WHERE room_code = ?
+    ORDER BY at, created_at, id
+  `).all(room.code) as unknown as InterventionRow[];
 
   const participants: Participant[] = participantRows.map((person) => ({
     id: person.id,
@@ -365,6 +446,7 @@ function snapshot(database: DatabaseSync, room: RoomRow, now = Date.now()): Room
     expiresAt: room.expires_at,
     participants,
     utterances: utteranceRows.map(toUtterance),
+    interventions: interventionRows.map(toIntervention).filter((event): event is Intervention => Boolean(event)),
   };
 }
 
@@ -403,7 +485,7 @@ export async function GET(request: Request) {
     const rawToken = bearer(request);
     const participant = participantByToken(database, code, rawToken);
     const isHost = Boolean(rawToken) && safeHashEqual(digest(rawToken), room.host_token_hash);
-    if (!participant && !isHost) throw new AccessError(401, '参会身份无效，请重新加入');
+    if ((!participant || participant.left_at !== null) && !isHost) throw new AccessError(401, '参会身份无效，请重新加入');
 
     if (participant && participant.left_at === null) {
       database.prepare('UPDATE participants SET last_seen = ? WHERE id = ?').run(now, participant.id);
@@ -583,6 +665,48 @@ export async function POST(request: Request) {
       const utterance = utteranceById(database, result.id);
       if (!utterance) throw new Error('utterance disappeared after commit');
       return Response.json({ id: result.id, revision: result.revision, utterance: toUtterance(utterance) });
+    }
+
+    if (action === 'intervention') {
+      const rawToken = bearer(request);
+      const tokenHash = rawToken ? digest(rawToken) : '';
+      const result = transaction(database, () => {
+        const room = roomRow(database, code);
+        if (!room) throw new AccessError(404, '会议不存在或已过期');
+        if (!tokenHash || !safeHashEqual(tokenHash, room.host_token_hash)) {
+          throw new AccessError(403, '只有主持人可以发布会中提醒');
+        }
+        if (!room.started_at || room.status === 'waiting') throw new AccessError(409, '会议尚未开始');
+        if (room.status === 'ended') throw new AccessError(409, '会议已经结束');
+
+        const serverElapsed = Math.max(0, (now - room.started_at) / 1000);
+        const intervention = cleanIntervention(input.intervention, serverElapsed);
+        const serialized = JSON.stringify(intervention);
+        const existing = interventionById(database, code, intervention.id);
+        if (existing) {
+          if (existing.event_json !== serialized) throw new AccessError(409, '同一提醒标识已用于其他内容');
+          return intervention;
+        }
+
+        const count = Number((database.prepare(`
+          SELECT COUNT(*) AS count FROM room_interventions WHERE room_code = ?
+        `).get(code) as { count: number }).count);
+        if (count >= MAX_ROOM_INTERVENTIONS) {
+          throw new RoomAccessError(429, '本场会议的提醒数量已达到上限', {
+            'Cache-Control': 'no-store',
+            'Retry-After': '60',
+          });
+        }
+        database.prepare(`
+          INSERT INTO room_interventions (id, room_code, at, created_at, event_json)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(intervention.id, code, intervention.at, now, serialized);
+        database.prepare('UPDATE rooms SET revision = revision + 1 WHERE code = ?').run(code);
+        return intervention;
+      });
+
+      const room = requireRoom(database, code, now);
+      return Response.json({ intervention: result, room: snapshot(database, room, now) });
     }
 
     if (action === 'leave') {

@@ -32,6 +32,11 @@ function delay(milliseconds: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+function formatElapsed(seconds: number) {
+  const safe = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
 function isRetryable(error: unknown) {
   if (!(error instanceof RoomRequestError)) return true;
   return error.status === 408 || error.status === 425 || error.status === 429 || error.status >= 500;
@@ -129,6 +134,8 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
   const partialTimerRef = useRef<number | null>(null);
   const partialTextRef = useRef('');
   const currentSpeechEventRef = useRef<PendingSpeechEvent | null>(null);
+  const autoMicAttemptedRef = useRef('');
+  const sharedTranscriptRef = useRef<HTMLDivElement | null>(null);
 
   const rememberSequence = useCallback(() => {
     try {
@@ -405,6 +412,15 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
     } finally { micStartingRef.current = false; setMicStarting(false); }
   }, [clearPartialTimer, enqueueUtterance, ensureSpeechEvent, schedulePartialUpload, waitForUploads]);
 
+  useEffect(() => {
+    if (!participantToken || room?.status !== 'live' || !room.startedAt) return;
+    const attemptKey = `${participantToken}:${room.startedAt}`;
+    if (autoMicAttemptedRef.current === attemptKey) return;
+    autoMicAttemptedRef.current = attemptKey;
+    const timer = window.setTimeout(() => void startMic(), 180);
+    return () => window.clearTimeout(timer);
+  }, [participantToken, room?.startedAt, room?.status, startMic]);
+
   const stopMic = useCallback(() => {
     if (stopPromiseRef.current) return stopPromiseRef.current;
     const stopping = (async () => {
@@ -432,6 +448,11 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       void stopMic();
     }
   }, [dropPendingPartials, room?.status, stopMic]);
+
+  useEffect(() => {
+    const list = sharedTranscriptRef.current;
+    if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
+  }, [draft, room?.revision]);
 
   useEffect(() => () => {
     clearPartialTimer();
@@ -476,22 +497,42 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
     return <main className="join-shell"><section className="join-card">
       <div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议参与端</small></span></div>
       <p className="eyebrow"><span /> 加入码 {normalizedCode}</p><h1>加入这场会议</h1>
-      <p>输入姓名后加入，催催会把你的发言记在你的名字下。</p>
+      <p>输入姓名后加入。会议已开始时会立即请求麦克风权限；还在等待时，会在主持人开始后自动尝试一次。</p>
       <form onSubmit={(event) => void join(event)}>
         <label className="field"><span>你的姓名</span><input autoFocus required maxLength={30} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：王工" autoComplete="name" /></label>
         <label className="field"><span>角色</span><input maxLength={40} value={role} onChange={(event) => setRole(event.target.value)} placeholder="例如：后端负责人" /></label>
         {joinError && <div className="service-error" role="alert"><b>无法加入</b><span>{joinError}</span></div>}
-        <button className="primary-action" type="submit" disabled={!name.trim() || joining}>{joining ? '正在加入…' : '确认加入会议'}</button>
+        <button className="primary-action" type="submit" disabled={!name.trim() || joining}>{joining ? '正在加入…' : '加入会议并开启麦克风'}</button>
       </form>
       <button className="text-button" type="button" disabled={exiting} onClick={() => void exit()}>返回首页</button>
     </section></main>;
   }
 
-  const mine = room?.utterances.filter((line) => line.participant_id === participantId) || [];
   const roomStatus = room?.status || 'waiting';
+  const elapsed = room?.startedAt ? Math.max(0, ((room.endedAt || room.serverNow) - room.startedAt) / 1000) : 0;
+  const duration = Math.max(1, room?.meeting.durationSeconds || 1);
+  const progress = Math.min(100, elapsed / duration * 100);
+  const remaining = duration - elapsed;
+  const agenda = room?.meeting.agenda || [];
+  const currentAgendaIndex = agenda.length && roomStatus !== 'waiting'
+    ? Math.min(agenda.length - 1, Math.floor(Math.min(.999, elapsed / duration) * agenda.length))
+    : 0;
+  const activeParticipants = room?.participants.filter((person) => person.left_at === null) || [];
+  const interventions = room?.interventions || [];
+  const latestIntervention = interventions.at(-1);
+  const sharedLines = (room?.utterances || [])
+    .filter((line) => !(draft && !line.final && line.participant_id === participantId))
+    .slice(-120);
   const statusCopy = roomStatus === 'live' ? '会议进行中' : roomStatus === 'closing' ? '会议正在收尾' : roomStatus === 'ended' ? '会议已结束' : '等待主持人开始';
-  const statusHelp = roomStatus === 'live' ? '轮到你发言时开启麦克风，建议佩戴耳机。' : roomStatus === 'closing' ? '正在同步最后的发言，请稍候。' : roomStatus === 'ended' ? '本场会议已结束，你的发言已经保存。' : '主持人开始会议后，你就可以发言。';
+  const statusHelp = roomStatus === 'live'
+    ? '已共享全场字幕、参会人和提醒；麦克风只用于转写，不传输通话声音。同处一室时请避免多台设备同时收音。'
+    : roomStatus === 'closing' ? '正在同步所有人的最后发言，请稍候。'
+      : roomStatus === 'ended' ? '本场会议已结束，全场记录已保存。'
+        : '主持人开始后会自动尝试开启你的麦克风。';
   const visibleError = micError || uploadError || syncError;
+  const paceCopy = roomStatus === 'waiting'
+    ? '尚未计时'
+    : remaining >= 0 ? `预计 ${formatElapsed(remaining)} 后结束` : `已超出计划 ${formatElapsed(Math.abs(remaining))}`;
 
   return <main className="participant-shell">
     <header className="participant-header">
@@ -499,21 +540,45 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       <span className={`room-status ${roomStatus}`}><i />{statusCopy}</span>
       <button className="control-chip" type="button" disabled={exiting} onClick={() => void exit()}>{exiting ? '正在退出…' : '退出'}</button>
     </header>
-    <section className="participant-main">
+    <section className="participant-main participant-shared-main">
       <div className={`room-live-banner ${roomStatus}`} role="status" aria-live="polite"><b>{statusCopy}</b><span>{statusHelp}</span><strong>{normalizedCode}</strong></div>
-      <div className="participant-title"><p>{room?.meeting.meetingType}</p><h1>{room?.meeting.title || '正在读取会议信息'}</h1><div>{room?.meeting.agenda.map((item, index) => <span key={`${index}-${item}`}>{index + 1}. {item}</span>)}</div></div>
-      <section className="mic-card">
-        <div className={`mic-orb ${status === 'listening' ? 'active' : ''}`}><i /><span>{status === 'listening' ? '正在听' : micStarting ? '连接中' : 'MIC'}</span></div>
-        <h2>{name}</h2><p>{role} · 轮到你发言时开启麦克风，建议佩戴耳机</p>
-        {draft && <div className="participant-draft" aria-live="polite"><span>听写中</span>{draft}</div>}
-        {visibleError && <div className="service-error" role="alert"><b>链路提示</b><span>{visibleError}</span></div>}
-        <div className="mic-actions">
-          {micActive ? <button className="end-button" type="button" onClick={() => void stopMic()}>结束本次发言</button> : <button className="primary-action" type="button" disabled={roomStatus !== 'live' || micStarting} aria-busy={micStarting} onClick={() => void startMic()}>{micStarting ? '正在连接讯飞…' : '开始发言'}</button>}
-          <span>{engine === 'iflytek' ? '讯飞实时听写中' : roomStatus === 'live' ? '讯飞听写待命' : statusHelp}</span>
-        </div>
+      <div className="participant-title"><p>{room?.meeting.meetingType} · 参会者共享视图</p><h1>{room?.meeting.title || '正在读取会议信息'}</h1><div>{agenda.map((item, index) => <span className={index === currentAgendaIndex && roomStatus === 'live' ? 'active' : ''} key={`${index}-${item}`}>{index + 1}. {item}</span>)}</div></div>
+      <section className="participant-command" aria-label="会议进度">
+        <div><span>已进行</span><b>{formatElapsed(elapsed)}</b></div>
+        <div><span>当前议题</span><b>{agenda[currentAgendaIndex] || '自由讨论'}</b></div>
+        <div><span>节奏预测</span><b className={remaining < 0 ? 'overdue' : ''}>{paceCopy}</b></div>
+        <div className="participant-progress" aria-label={`会议计划进度 ${Math.round(progress)}%`}><i style={{ width: `${progress}%` }} /></div>
       </section>
-      <section className="manual-card"><h3>文字补充</h3><p>也可以打字补充观点，催催会以你的名字同步到主持台。</p><textarea rows={3} maxLength={600} value={manualText} onChange={(event) => setManualText(event.target.value)} placeholder="例如：我建议先灰度百分之二十。" /><button type="button" onClick={() => void sendManual()} disabled={!manualText.trim() || manualSending || roomStatus !== 'live'} aria-busy={manualSending}>{manualSending ? '正在同步…' : '发送到主持台'}</button></section>
-      <section className="participant-log"><div><p>我的发言</p><b>{mine.length} 段</b></div>{mine.map((line) => <article key={line.id}><time>{Math.round(line.started_at)}s</time><p>{line.text}</p><span>{line.final ? '已同步' : '同步中'}</span></article>)}</section>
+      <div className="participant-shared-grid">
+        <section className="participant-shared-transcript">
+          <header><div><p>全员实时同步</p><h2>会议字幕</h2></div><b>{room?.utterances.filter((line) => line.final).length || 0} 段稳定字幕</b></header>
+          <div className="participant-transcript-list" ref={sharedTranscriptRef}>
+            {sharedLines.length === 0 && !draft && <div className="participant-empty"><span className="listening-orbit"><i /></span><b>{roomStatus === 'waiting' ? '等待主持人开始会议' : '等待第一位参会者发言'}</b><p>每个人的字幕都会在这里按真实时间出现。</p></div>}
+            {sharedLines.map((line) => <article className={`${line.participant_id === participantId ? 'mine' : ''} ${line.final ? '' : 'draft'}`} key={line.id}>
+              <time>{formatElapsed(line.started_at)}</time><span className="participant-line-avatar">{line.name.slice(0, 1)}</span><div><p className="participant-speaker"><b>{line.name}</b><span>{line.role}</span>{line.participant_id === participantId && <em>我</em>}{!line.final && <em>听写中</em>}</p><p>{line.text}</p></div>
+            </article>)}
+            {draft && <article className="mine draft local" aria-live="polite"><time>{formatElapsed(elapsed)}</time><span className="participant-line-avatar">{name.slice(0, 1)}</span><div><p className="participant-speaker"><b>{name}</b><span>{role}</span><em>我</em><em>听写中</em></p><p>{draft}<span className="typing-cursor" /></p></div></article>}
+          </div>
+        </section>
+        <aside className="participant-shared-side">
+          <section className={`participant-reminder ${latestIntervention?.severity || 'calm'}`}>
+            <header><div><p>CUICUI AGENT</p><h2>现场提醒</h2></div><b>{interventions.length} 条</b></header>
+            {latestIntervention ? <article><div><span>{latestIntervention.label}</span><time>{formatElapsed(latestIntervention.at)}</time></div><p><b>观察</b>{latestIntervention.observation}</p><p><b>建议</b>{latestIntervention.suggestion}</p><footer><span>判断依据</span><b>{latestIntervention.evidence}</b></footer></article> : <div className="participant-calm"><span>✓</span><div><b>尚无充分介入证据</b><p>催催正根据全场字幕、议题和剩余时间持续判断。</p></div></div>}
+            {interventions.length > 1 && <div className="participant-reminder-history">{interventions.slice(-4, -1).reverse().map((event) => <span key={event.id}><time>{formatElapsed(event.at)}</time>{event.label}</span>)}</div>}
+          </section>
+          <section className="participant-roster">
+            <header><div><p>ROOM MEMBERS</p><h2>参会人</h2></div><b>{activeParticipants.filter((person) => person.online).length} / {activeParticipants.length} 在线</b></header>
+            <div>{activeParticipants.map((person) => <article key={person.id} className={person.id === participantId ? 'self' : ''}><span className="participant-avatar">{person.name.slice(0, 1)}</span><div><b>{person.name}</b><p>{person.role}</p></div><em className={person.online ? 'online' : ''}>{person.id === participantId ? '我' : person.role === '主持人' ? '主持人' : person.online ? '在线' : '暂离'}</em></article>)}</div>
+          </section>
+        </aside>
+      </div>
+    </section>
+    <section className={`participant-mic-dock ${micActive ? 'active' : ''}`} aria-label="我的麦克风">
+      <div className="mic-dock-identity"><span className={`mic-dock-orb ${status === 'listening' ? 'active' : ''}`}><i /></span><div><b>{name}</b><span>{role}</span></div></div>
+      <div className="mic-dock-state"><b>{micStarting ? '正在连接讯飞…' : micActive ? '麦克风已开启，正在生成你的字幕' : roomStatus === 'live' ? '麦克风未开启' : statusCopy}</b><span>{engine === 'iflytek' ? '讯飞实时听写中 · 声音不会传给其他参会者' : '加入后只自动尝试一次，失败时可在这里重试；同处一室请按需关闭'}</span>{visibleError && <div className="mic-dock-error" role="alert">{visibleError}</div>}</div>
+      <div className="mic-dock-actions">{micActive ? <button className="end-button" type="button" onClick={() => void stopMic()}>关闭麦克风</button> : <button className="primary-action" type="button" disabled={roomStatus !== 'live' || micStarting} aria-busy={micStarting} onClick={() => void startMic()}>{micStarting ? '正在开启…' : micError ? '重新开启麦克风' : '开启麦克风'}</button>}
+        <details className="participant-manual-details"><summary>文字补充</summary><div><textarea rows={3} maxLength={600} value={manualText} onChange={(event) => setManualText(event.target.value)} placeholder="输入要同步给全场的观点" /><button type="button" onClick={() => void sendManual()} disabled={!manualText.trim() || manualSending || roomStatus !== 'live'} aria-busy={manualSending}>{manualSending ? '正在同步…' : '发送给全场'}</button></div></details>
+      </div>
     </section>
   </main>;
 }

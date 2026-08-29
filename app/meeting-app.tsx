@@ -31,7 +31,7 @@ type RoomDraft = {
 };
 type PulseSegment = { start: number; end: number; label: string; tone: string };
 type RoomUpload = { clientEventId: string; text: string; final: boolean; startedAt: number; endedAt: number };
-type ErrorSource = 'room-sync' | 'room-upload' | 'room-control' | 'analysis' | 'microphone' | 'general';
+type ErrorSource = 'room-sync' | 'room-upload' | 'room-intervention' | 'room-control' | 'analysis' | 'microphone' | 'general';
 
 const palette = ['#59e1ff', '#ffc857', '#a8f05a', '#a994ff', '#ff8297', '#ff9f68', '#77e0bc'];
 const cloneConfig = () => ({ ...DEFAULT_CONFIG, agenda: [...DEFAULT_CONFIG.agenda], attendees: DEFAULT_CONFIG.attendees.map((person) => ({ ...person })) });
@@ -96,6 +96,12 @@ function roomSpeakers(room: RoomSnapshot | null): Speaker[] {
     color: palette[index % palette.length],
     isPriority: person.role.includes('拍板') || person.role.includes('决策人'),
   }));
+}
+
+function mergeRoomInterventions(current: Intervention[], incoming: Intervention[]) {
+  const merged = new Map(current.map((event) => [event.id, event]));
+  for (const event of incoming) merged.set(event.id, event);
+  return [...merged.values()].sort((left, right) => left.at - right.at || left.id.localeCompare(right.id));
 }
 
 function ConfigDialog({ config, onSave, onClose }: { config: MeetingConfig; onSave: (value: MeetingConfig) => void; onClose: () => void }) {
@@ -356,6 +362,7 @@ function HostMeetingApp() {
   const roomSnapshotRef = useRef<RoomSnapshot | null>(null);
   const roomServerClockRef = useRef<{ serverNow: number; monotonicAt: number } | null>(null);
   const roomUploadQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const roomInterventionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const roomUploadFailureRef = useRef<Error | null>(null);
   const roomLatestPartialSeqRef = useRef(new Map<string, number>());
   const roomFinalQueuedRef = useRef(new Set<string>());
@@ -458,6 +465,7 @@ function HostMeetingApp() {
             liveLinesRef.current = finalLines;
             setLiveLines(finalLines);
             setRoomDraftLines(roomTranscript(acceptedRoom, false));
+            setLiveEvents((current) => mergeRoomInterventions(current, acceptedRoom.interventions || []));
             setRoomClosing(acceptedRoom.status === 'closing');
             if (acceptedRoom.status === 'closing' || acceptedRoom.status === 'ended') setRunning(false);
           }
@@ -485,6 +493,37 @@ function HostMeetingApp() {
     const endpoint = snapshot.endedAt || roomServerNow();
     return Math.max(0, (endpoint - snapshot.startedAt) / 1000);
   }, [roomServerNow]);
+
+  const enqueueRoomIntervention = useCallback((event: Intervention) => {
+    const session = roomSessionRef.current;
+    if (!session) return Promise.reject(new Error('主持会场身份已失效，提醒未能同步。'));
+    const operation = roomInterventionQueueRef.current.then(async () => {
+      let latestError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const payload = await postRoom({
+            action: 'intervention',
+            code: session.code,
+            intervention: event,
+          }, session.hostToken, 4_000) as { room?: RoomSnapshot };
+          if (payload.room) {
+            const accepted = acceptRoomSnapshot(payload.room);
+            setLiveEvents((current) => mergeRoomInterventions(current, accepted.interventions || []));
+          }
+          clearScopedError('room-intervention');
+          return;
+        } catch (reason) {
+          latestError = reason;
+          if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+        }
+      }
+      throw latestError instanceof Error ? latestError : new Error('提醒同步失败');
+    });
+    roomInterventionQueueRef.current = operation.catch((reason) => {
+      showScopedError('room-intervention', `提醒未同步给参会者：${reason instanceof Error ? reason.message : '网络异常'}`);
+    });
+    return operation;
+  }, [acceptRoomSnapshot, clearScopedError, showScopedError]);
 
   const enqueueRoomUpload = useCallback((upload: RoomUpload) => {
     const session = roomSessionRef.current;
@@ -809,7 +848,7 @@ function HostMeetingApp() {
       setRunning(true);
       setRoomClosing(false);
       setLiveDraft('');
-      setLiveEvents([]);
+      setLiveEvents(snapshot.interventions || []);
       setActionState({});
       setParkingItems([]);
       setSelectedSpeakerId(session.participantId);
@@ -872,7 +911,25 @@ function HostMeetingApp() {
         if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
         analysisRetryTimerRef.current = null;
         clearScopedError('analysis');
-        if (Array.isArray(data.events) && data.events.length) setLiveEvents((previous) => [...previous, ...data.events!.filter((event) => !previous.some((item) => item.type === event.type && elapsedRef.current - item.at < 20)).map((event, index) => ({ ...event, id: `ai-${Date.now()}-${index}`, at: elapsedRef.current, actions: event.severity === 'critical' ? ['adopt', 'park'] : ['adopt', 'ignore'] } as Intervention))]);
+        if (Array.isArray(data.events) && data.events.length) {
+          const accepted: Intervention[] = [];
+          for (const [index, event] of data.events.entries()) {
+            const duplicate = [...liveEvents, ...accepted].some((item) => item.type === event.type && elapsedRef.current - item.at < 20);
+            if (duplicate) continue;
+            accepted.push({
+              ...event,
+              id: `ai-${Date.now()}-${index}-${crypto.randomUUID()}`,
+              at: elapsedRef.current,
+              actions: event.severity === 'critical' ? ['adopt', 'park'] : ['adopt', 'ignore'],
+            } as Intervention);
+          }
+          if (accepted.length) {
+            setLiveEvents((current) => mergeRoomInterventions(current, accepted));
+            if (mode === 'room') {
+              for (const event of accepted) void enqueueRoomIntervention(event).catch(() => undefined);
+            }
+          }
+        }
       } catch {
         showScopedError('analysis', 'AI 分析暂时不可用，转写仍在保存，正在自动重试。');
         if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
@@ -882,7 +939,7 @@ function HostMeetingApp() {
       }
     }, roomCooldown);
     return () => window.clearTimeout(timer);
-  }, [screen, mode, running, liveAnalysisDraft, liveLines, roomDraftLines, liveEvents, selectedSpeakerId, displayConfig, analysisRetryTick, clearScopedError, showScopedError]);
+  }, [screen, mode, running, liveAnalysisDraft, liveLines, roomDraftLines, liveEvents, selectedSpeakerId, displayConfig, analysisRetryTick, clearScopedError, enqueueRoomIntervention, showScopedError]);
 
   const buildStats = useCallback((lines: TranscriptLine[], attendees: Speaker[]) => {
     const totals = new Map<string, number>(); for (const line of lines) totals.set(line.speakerId, (totals.get(line.speakerId) || 0) + Math.max(1, line.end - line.at));
@@ -957,6 +1014,7 @@ function HostMeetingApp() {
         clearScopedError('room-control');
         try {
           await stopRoomHostMic();
+          await roomInterventionQueueRef.current;
           clearScopedError('room-upload');
         } catch (reason) {
           showScopedError('room-upload', `${reason instanceof Error ? reason.message : '主持人最后一句未能完成同步'}；其余成员记录仍会正常收尾。`);
