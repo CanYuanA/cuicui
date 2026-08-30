@@ -17,6 +17,7 @@ import {
 import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
 import { playInterventionChime, primeInterventionChime } from './intervention-chime';
+import { appendStableLiveLine, resolveLiveDraftSpeaker, SerialSnapshotQueue, stableLiveAnalysisLines } from './single-live-flow';
 import type { RoomSession, RoomSnapshot } from './room-types';
 
 type Screen = 'setup' | 'meeting' | 'report';
@@ -291,12 +292,12 @@ function TranscriptEntry({ line, speakers, draft = false, latest = false }: { li
 }
 
 function MeetingView({
-  config, mode, roomCode, roomCount, engine, elapsed, running, speed, soundOn, liveStatus, selectedSpeakerId,
+  config, mode, roomCode, roomCount, engine, elapsed, running, speed, soundOn, liveStatus, selectedSpeakerId, singleTurnBusy,
   transcript, partialTranscript, liveDraft, events, actionState, parkingItems, error, verifiedRun, roomClosing, roomEndInFlight, hostMicActive,
   onPause, onSpeed, onSound, onSkip, onEnd, onReset, onSpeaker, onCommitDraft, onAction, onHostMic,
 }: {
   config: MeetingConfig; mode: Mode; roomCode?: string; roomCount?: number; engine: 'iflytek' | null;
-  elapsed: number; running: boolean; speed: number; soundOn: boolean; liveStatus: TranscriberStatus | null; selectedSpeakerId: string;
+  elapsed: number; running: boolean; speed: number; soundOn: boolean; liveStatus: TranscriberStatus | null; selectedSpeakerId: string; singleTurnBusy: boolean;
   transcript: TranscriptLine[]; partialTranscript: TranscriptLine[]; liveDraft: string; events: Intervention[]; actionState: ActionState; parkingItems: string[]; error: string | null;
   verifiedRun: VerifiedRun | null; roomClosing: boolean; roomEndInFlight: boolean; hostMicActive: boolean;
   onPause: () => void; onSpeed: () => void; onSound: () => void; onSkip: () => void; onEnd: () => void; onReset: () => void;
@@ -358,7 +359,7 @@ function MeetingView({
     <section className="time-command"><div className="topic-now"><small>当前议题</small><b>{visibleAgenda}</b></div><div className="time-progress"><div className="time-copy"><span>已进行 {formatClock(elapsed)}</span><strong>剩余 {formatClock(remaining)}</strong><span>{mode === 'verified' ? '会议时间轴' : '实时语义分析'}</span></div><div className="time-track"><i style={{ width: `${progress}%` }} className={progress >= 90 ? 'danger' : progress >= 75 ? 'warning' : ''} /></div></div><div className={hasTimeRisk || progress >= 75 ? 'forecast warning' : 'forecast'}><small>节奏预测</small><b>{hasTimeRisk ? '预计超时 · 请立即收敛' : progress < 58 ? '按时推进' : progress < 75 ? '需要收敛' : progress < 92 ? '决策时间不足' : '准备生成报告'}</b></div></section>
     {(error || roomClosing) && <div className="service-error" role="status"><b>{roomClosing ? '会议收尾中' : '链路提示'}</b><span>{roomClosing ? '正在等待所有成员提交最后一句，随后生成完整报告。' : error}</span></div>}
     <section className="meeting-grid"><section className="transcript-panel"><div className="panel-heading"><div><p>{mode === 'verified' ? '随发言更新' : '实时现场'}</p><h2>会议字幕</h2></div><div className="signal-bars"><i /><i /><i /><i /><i /></div></div>
-      {mode === 'live' && <div className="speaker-switcher"><span>当前发言者</span>{config.attendees.map((person, index) => <button type="button" key={person.id} className={selectedSpeakerId === person.id ? 'speaker-pill active' : 'speaker-pill'} onClick={() => onSpeaker(person.id)} style={{ '--speaker': person.color } as CSSProperties}><i>{person.short}</i>{person.name}<kbd>{index + 1}</kbd></button>)}<button type="button" className="commit-draft" disabled={!liveDraft.trim()} onClick={onCommitDraft}>提交这一句</button></div>}
+      {mode === 'live' && <div className="speaker-switcher"><span>{singleTurnBusy ? '正在确认上一句' : '当前发言者'}</span>{config.attendees.map((person, index) => <button type="button" key={person.id} disabled={singleTurnBusy} className={selectedSpeakerId === person.id ? 'speaker-pill active' : 'speaker-pill'} onClick={() => onSpeaker(person.id)} style={{ '--speaker': person.color } as CSSProperties}><i>{person.short}</i>{person.name}<kbd>{index + 1}</kbd></button>)}<button type="button" className="commit-draft" disabled={singleTurnBusy || !liveDraft.trim()} onClick={onCommitDraft}>{singleTurnBusy ? '正在提交…' : '提交这一句'}</button></div>}
       {mode === 'room' && <div className="room-live-banner"><b>多人会议进行中</b><span>正在聚合 {roomCount || 1} 位成员的实时转写</span><strong>{roomCode}</strong></div>}
       <div className="transcript-list" ref={listRef} aria-live="polite">
         {orderedTranscript.length === 0 && !liveDraft && <div className="list-empty"><span className="listening-orbit"><i /></span><b>{mode === 'room' ? '等待参会者发言…' : mode === 'verified' ? '会议开始后，字幕会逐句出现' : '正在等待第一句话…'}</b><p>每句话说完后，才会形成稳定字幕。</p></div>}
@@ -446,6 +447,7 @@ function HostMeetingApp() {
   const [liveStatus, setLiveStatus] = useState<TranscriberStatus | null>(null);
   const [engine, setEngine] = useState<'iflytek' | null>(null);
   const [selectedSpeakerId, setSelectedSpeakerId] = useState('host');
+  const [singleTurnBusy, setSingleTurnBusy] = useState(false);
   const [actionState, setActionState] = useState<ActionState>({});
   const [parkingItems, setParkingItems] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -465,6 +467,7 @@ function HostMeetingApp() {
   const transcriberStartingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const liveLinesRef = useRef<TranscriptLine[]>([]);
+  const liveEventsRef = useRef<Intervention[]>([]);
   const engineRef = useRef<'iflytek' | null>(null);
   const roomRevisionRef = useRef(0);
   const roomSessionRef = useRef<RoomSession | null>(null);
@@ -522,8 +525,27 @@ function HostMeetingApp() {
   const selectedSpeakerRef = useRef('host');
   const fullRecognitionRef = useRef('');
   const committedCharsRef = useRef(0);
+  const liveDraftSpeakerRef = useRef<string | null>(null);
+  const liveDraftStartedAtRef = useRef<number | null>(null);
   const lastSpokenRef = useRef('');
   const lastAnalyzedRef = useRef('');
+  const analysisGenerationRef = useRef(0);
+  const analysisControllersRef = useRef(new Set<AbortController>());
+  const liveAnalysisQueueRef = useRef(new SerialSnapshotQueue());
+  const roomAnalysisInFlightRef = useRef(false);
+  const roomAnalysisPendingRef = useRef(false);
+
+  const invalidateAnalysis = useCallback(() => {
+    analysisGenerationRef.current += 1;
+    for (const controller of analysisControllersRef.current) controller.abort();
+    analysisControllersRef.current.clear();
+    liveAnalysisQueueRef.current.reset();
+    roomAnalysisInFlightRef.current = false;
+    roomAnalysisPendingRef.current = false;
+    lastAnalyzedRef.current = '';
+    if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
+    analysisRetryTimerRef.current = null;
+  }, []);
 
   useEffect(() => {
     void fetch('/api/health', { cache: 'no-store' }).then((response) => response.json() as Promise<{ services: ServiceHealth }>).then((data) => setHealth(data.services)).catch(() => setHealth({ openrouter: false, iflytek: false, speech: true }));
@@ -533,6 +555,7 @@ function HostMeetingApp() {
   }, []);
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
   useEffect(() => { liveLinesRef.current = liveLines; }, [liveLines]);
+  useEffect(() => { liveEventsRef.current = liveEvents; }, [liveEvents]);
   useEffect(() => { selectedSpeakerRef.current = selectedSpeakerId; }, [selectedSpeakerId]);
   useEffect(() => { roomSessionRef.current = roomSession; }, [roomSession]);
   useEffect(() => {
@@ -546,7 +569,7 @@ function HostMeetingApp() {
     } catch { sessionStorage.removeItem(ROOM_HOST_STORAGE_KEY); } }, 0);
     return () => window.clearTimeout(timer);
   }, []);
-  useEffect(() => () => { if (roomPartialTimerRef.current !== null) window.clearTimeout(roomPartialTimerRef.current); if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current); void transcriberRef.current?.stop(); audioRef.current?.pause(); }, []);
+  useEffect(() => () => { if (roomPartialTimerRef.current !== null) window.clearTimeout(roomPartialTimerRef.current); invalidateAnalysis(); void transcriberRef.current?.stop(); audioRef.current?.pause(); }, [invalidateAnalysis]);
 
   useEffect(() => {
     if (!roomSession) return;
@@ -891,13 +914,57 @@ function HostMeetingApp() {
     } catch { showScopedError('general', '复制失败，请手动复制卡片中的分享链接。'); }
   }, [clearScopedError, showScopedError]);
 
+  const appendLiveLine = useCallback((line: TranscriptLine) => {
+    const next = appendStableLiveLine(liveLinesRef.current, line);
+    liveLinesRef.current = next;
+    setLiveLines(next);
+  }, []);
+
   const commitDraft = useCallback(() => {
-    const text = liveDraft.trim(); if (!text) return;
-    const speaker = selectedSpeakerRef.current;
-    setLiveLines((previous) => [...previous, { id: `live-${Date.now()}`, at: elapsedRef.current, end: elapsedRef.current + Math.max(1, text.length / 5), speakerId: speaker, text, topic: '实时讨论', workRelated: true, asrSource: '讯飞实时' }]);
+    const recognitionTail = fullRecognitionRef.current.slice(committedCharsRef.current).trim();
+    const text = recognitionTail || liveDraft.trim();
+    if (!text) return false;
+    const speakerId = resolveLiveDraftSpeaker(liveDraftSpeakerRef.current, selectedSpeakerRef.current);
+    const endedAt = elapsedRef.current;
+    const startedAt = Math.min(endedAt, liveDraftStartedAtRef.current ?? Math.max(0, endedAt - Math.max(1, text.length / 5)));
+    appendLiveLine({ id: `live-${crypto.randomUUID()}`, at: startedAt, end: Math.max(startedAt + .1, endedAt), speakerId, text, topic: '实时讨论', workRelated: true, asrSource: '讯飞实时' });
     committedCharsRef.current = fullRecognitionRef.current.length;
     setLiveDraft('');
-  }, [liveDraft]);
+    return true;
+  }, [appendLiveLine, liveDraft]);
+
+  const flushLiveTurn = useCallback(async () => {
+    const current = transcriberRef.current;
+    if (!current) {
+      liveDraftSpeakerRef.current = null;
+      liveDraftStartedAtRef.current = null;
+      return true;
+    }
+    const operation = transcriberTransitionRef.current.then(async () => {
+      if (transcriberRef.current === current) await current.flush();
+    });
+    transcriberTransitionRef.current = operation.catch(() => undefined);
+    try {
+      await operation;
+      liveDraftSpeakerRef.current = null;
+      liveDraftStartedAtRef.current = null;
+      return true;
+    } catch (reason) {
+      if (transcriberRef.current === current) transcriberRef.current = null;
+      await current.stop().catch(() => undefined);
+      engineRef.current = null;
+      setEngine(null);
+      setRunning(false);
+      showScopedError('microphone', `角色切换时未能完成上一句：${reason instanceof Error ? reason.message : '讯飞连接失败'}`);
+      return false;
+    }
+  }, [showScopedError]);
+
+  const submitLiveDraft = useCallback(() => {
+    if (singleTurnBusy || !commitDraft()) return;
+    setSingleTurnBusy(true);
+    void flushLiveTurn().finally(() => setSingleTurnBusy(false));
+  }, [singleTurnBusy, commitDraft, flushLiveTurn]);
 
   const startTranscriber = useCallback(async () => {
     await transcriberTransitionRef.current;
@@ -906,13 +973,34 @@ function HostMeetingApp() {
     clearAllErrors(); setEngine(null); setLiveDraft('');
     fullRecognitionRef.current = '';
     committedCharsRef.current = 0;
+    liveDraftSpeakerRef.current = null;
+    liveDraftStartedAtRef.current = null;
     let direct: XfyunTranscriber | null = null;
     try {
       const accessToken = await getDemoSession();
       const callbacks: TranscriberOptions = {
         accessToken,
-        onPartial: (text) => { fullRecognitionRef.current = text; setLiveDraft(text.slice(committedCharsRef.current).trimStart()); },
-        onFinal: (text) => { const tail = text.slice(committedCharsRef.current).trim(); if (tail) { const line: TranscriptLine = { id: `live-${Date.now()}`, at: elapsedRef.current, end: elapsedRef.current + Math.max(1, tail.length / 5), speakerId: selectedSpeakerRef.current, text: tail, topic: '实时讨论', workRelated: true, asrSource: '讯飞实时' }; liveLinesRef.current = [...liveLinesRef.current, line]; setLiveLines(liveLinesRef.current); } committedCharsRef.current = text.length; setLiveDraft(''); },
+        onPartial: (text) => {
+          fullRecognitionRef.current = text;
+          const tail = text.slice(committedCharsRef.current).trimStart();
+          if (tail && !liveDraftSpeakerRef.current) liveDraftSpeakerRef.current = selectedSpeakerRef.current;
+          if (tail && liveDraftStartedAtRef.current === null) liveDraftStartedAtRef.current = elapsedRef.current;
+          setLiveDraft(tail);
+        },
+        onFinal: (text) => {
+          fullRecognitionRef.current = text;
+          const tail = text.slice(committedCharsRef.current).trim();
+          if (tail) {
+            const speakerId = resolveLiveDraftSpeaker(liveDraftSpeakerRef.current, selectedSpeakerRef.current);
+            const endedAt = elapsedRef.current;
+            const startedAt = Math.min(endedAt, liveDraftStartedAtRef.current ?? Math.max(0, endedAt - Math.max(1, tail.length / 5)));
+            appendLiveLine({ id: `live-${crypto.randomUUID()}`, at: startedAt, end: Math.max(startedAt + .1, endedAt), speakerId, text: tail, topic: '实时讨论', workRelated: true, asrSource: '讯飞实时' });
+          }
+          committedCharsRef.current = text.length;
+          liveDraftSpeakerRef.current = null;
+          liveDraftStartedAtRef.current = null;
+          setLiveDraft('');
+        },
         onStatus: setLiveStatus,
         onError: (message) => {
           showScopedError('microphone', message);
@@ -937,24 +1025,27 @@ function HostMeetingApp() {
     } finally {
       transcriberStartingRef.current = false;
     }
-  }, [clearAllErrors, showScopedError]);
+  }, [appendLiveLine, clearAllErrors, showScopedError]);
 
   const startMeeting = useCallback(async (targetMode: Mode) => {
     if (targetMode === 'verified' && !verifiedRun) return;
     if (targetMode === 'room') return;
+    invalidateAnalysis();
     primeInterventionChime();
     const verifiedSpeed = 1.5;
     const startingConfig = targetMode === 'verified' && verifiedRun ? verifiedRun.meeting : config;
     const startingSpeakerId = startingConfig.attendees[0]?.id || 'host';
-    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); setSpeed(targetMode === 'verified' ? verifiedSpeed : speed); setSoundOn(true); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId);
-    selectedSpeakerRef.current = startingSpeakerId; lastSpokenRef.current = ''; lastAnalyzedRef.current = ''; fullRecognitionRef.current = ''; committedCharsRef.current = 0;
+    liveEventsRef.current = [];
+    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); setSpeed(targetMode === 'verified' ? verifiedSpeed : speed); setSoundOn(true); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId); setSingleTurnBusy(false);
+    selectedSpeakerRef.current = startingSpeakerId; lastSpokenRef.current = ''; fullRecognitionRef.current = ''; committedCharsRef.current = 0; liveDraftSpeakerRef.current = null; liveDraftStartedAtRef.current = null;
     if (targetMode === 'live') window.setTimeout(() => void startTranscriber(), 120);
     if (targetMode === 'verified' && audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.playbackRate = verifiedSpeed; audioRef.current.muted = false; void audioRef.current.play().catch(() => { setRunning(false); showScopedError('general', '浏览器阻止了自动播放，请点击“继续”开始录音。'); }); }
-  }, [verifiedRun, config, startTranscriber, speed, clearAllErrors, showScopedError]);
+  }, [verifiedRun, config, startTranscriber, speed, clearAllErrors, invalidateAnalysis, showScopedError]);
 
   const startRoomMeeting = useCallback(async () => {
     const session = roomSessionRef.current;
     if (!session) return;
+    invalidateAnalysis();
     primeInterventionChime();
     setRoomLoading(true);
     clearAllErrors();
@@ -984,9 +1075,11 @@ function HostMeetingApp() {
       setSoundOn(true);
       setElapsed(snapshot.startedAt ? roomElapsedNow() : 0);
       setRunning(true);
+      setSingleTurnBusy(false);
       setRoomClosing(false);
       setLiveDraft('');
-      setLiveEvents(snapshot.interventions || []);
+      liveEventsRef.current = snapshot.interventions || [];
+      setLiveEvents(liveEventsRef.current);
       setActionState({});
       setParkingItems([]);
       setSelectedSpeakerId(session.participantId);
@@ -1000,7 +1093,7 @@ function HostMeetingApp() {
     } finally {
       setRoomLoading(false);
     }
-  }, [acceptRoomSnapshot, clearAllErrors, clearScopedError, roomElapsedNow, showScopedError]);
+  }, [acceptRoomSnapshot, clearAllErrors, clearScopedError, invalidateAnalysis, roomElapsedNow, showScopedError]);
 
   useEffect(() => {
     if (screen !== 'meeting' || mode === 'verified') return;
@@ -1017,7 +1110,6 @@ function HostMeetingApp() {
 
   const visibleTranscript = mode === 'verified' ? (verifiedRun?.transcript || []).filter((line) => line.end <= elapsed + .05) : liveLines;
   const visibleEvents = mode === 'verified' ? (verifiedRun?.events || []).filter((event) => event.at <= elapsed) : liveEvents;
-  const liveAnalysisDraft = mode === 'room' ? '' : liveDraft;
 
   useEffect(() => {
     if (screen !== 'meeting' || !soundOn || !visibleEvents.length) return;
@@ -1027,55 +1119,105 @@ function HostMeetingApp() {
     playInterventionChime(latest.level);
   }, [screen, soundOn, visibleEvents, actionState]);
 
-  useEffect(() => {
-    if (screen !== 'meeting' || mode === 'verified' || !running) return;
-    const analysisLines = mode === 'room' ? [...liveLines, ...roomDraftLines] : liveLines;
-    const hasEvidence = mode === 'room' ? analysisLines.some((line) => line.text.trim().length >= 4) : liveAnalysisDraft.length >= 8 || liveLines.length > 0;
-    if (!hasEvidence) return;
-    const snapshotKey = [...analysisLines.map((line) => `${line.id}:${line.speakerId}:${line.text}`), mode === 'live' ? `${selectedSpeakerId}:${liveAnalysisDraft}` : ''].join('|');
-    if (!snapshotKey || snapshotKey === lastAnalyzedRef.current) return;
-    const roomCooldown = mode === 'room' ? Math.max(250, 6000 - (Date.now() - lastRoomAnalyzedAtRef.current)) : 1300;
-    const timer = window.setTimeout(async () => {
-      if (mode === 'room') lastRoomAnalyzedAtRef.current = Date.now();
-      const controller = new AbortController();
-      const requestTimer = window.setTimeout(() => controller.abort(), 10_000);
-      try {
-        const transcript = [...analysisLines.map((line) => ({ id: line.id, speakerId: line.speakerId, speaker: getSpeaker(line.speakerId, displayConfig.attendees).name, text: line.text, at: line.at, end: line.end, workRelated: line.workRelated, interrupted: line.interrupted })), ...(mode === 'live' && liveAnalysisDraft ? [{ id: `draft-${selectedSpeakerId}`, speakerId: selectedSpeakerId, speaker: getSpeaker(selectedSpeakerId, displayConfig.attendees).name, text: liveAnalysisDraft, at: elapsedRef.current, end: elapsedRef.current, workRelated: true }] : [])];
-        const accessToken = await getDemoSession();
-        const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: displayConfig.title, type: displayConfig.meetingType, durationSeconds: displayConfig.durationSeconds, agenda: displayConfig.agenda }, elapsedSeconds: elapsedRef.current, previousEvents: liveEvents.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })), transcript }), signal: controller.signal });
-        const data = await response.json() as { events?: Array<Omit<Intervention, 'id'>>; error?: string };
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        lastAnalyzedRef.current = snapshotKey;
-        if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
-        analysisRetryTimerRef.current = null;
-        clearScopedError('analysis');
-        if (Array.isArray(data.events) && data.events.length) {
-          const accepted: Intervention[] = [];
-          for (const [index, event] of data.events.entries()) {
-            accepted.push({
-              ...event,
-              id: `ai-${Date.now()}-${index}-${crypto.randomUUID()}`,
-              at: Number.isFinite(Number(event.at)) ? Number(event.at) : elapsedRef.current,
-              actions: event.level === 'L0' ? [] : event.level === 'L2' ? ['adopt', 'park'] : ['adopt', 'ignore'],
-            } as Intervention);
-          }
-          if (accepted.length) {
-            setLiveEvents((current) => mergeRoomInterventions(current, accepted));
-            if (mode === 'room') {
-              for (const event of accepted) void enqueueRoomIntervention(event).catch(() => undefined);
-            }
-          }
+  const runAnalysisSnapshot = useCallback(async ({
+    analysisLines,
+    modeAtRequest,
+    configAtRequest,
+    snapshotKey,
+    generation,
+  }: {
+    analysisLines: TranscriptLine[];
+    modeAtRequest: 'live' | 'room';
+    configAtRequest: MeetingConfig;
+    snapshotKey: string;
+    generation: number;
+  }) => {
+    if (generation !== analysisGenerationRef.current) return true;
+    const controller = new AbortController();
+    analysisControllersRef.current.add(controller);
+    const requestTimer = window.setTimeout(() => controller.abort(), 20_000);
+    try {
+      const transcript = analysisLines.map((line) => ({ id: line.id, speakerId: line.speakerId, speaker: getSpeaker(line.speakerId, configAtRequest.attendees).name, text: line.text, at: line.at, end: line.end, workRelated: line.workRelated, interrupted: line.interrupted }));
+      const accessToken = await getDemoSession();
+      if (generation !== analysisGenerationRef.current) return true;
+      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: configAtRequest.title, type: configAtRequest.meetingType, durationSeconds: configAtRequest.durationSeconds, agenda: configAtRequest.agenda }, elapsedSeconds: elapsedRef.current, previousEvents: liveEventsRef.current.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })), transcript }), signal: controller.signal });
+      const data = await response.json() as { events?: Array<Omit<Intervention, 'id'>>; error?: string };
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (generation !== analysisGenerationRef.current) return true;
+      lastAnalyzedRef.current = snapshotKey;
+      if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
+      analysisRetryTimerRef.current = null;
+      clearScopedError('analysis');
+      if (Array.isArray(data.events) && data.events.length) {
+        const accepted = data.events.map((event, index) => ({
+          ...event,
+          id: `ai-${Date.now()}-${index}-${crypto.randomUUID()}`,
+          at: Number.isFinite(Number(event.at)) ? Number(event.at) : elapsedRef.current,
+          actions: event.level === 'L0' ? [] : event.level === 'L2' ? ['adopt', 'park'] : ['adopt', 'ignore'],
+        } as Intervention));
+        const nextEvents = mergeRoomInterventions(liveEventsRef.current, accepted);
+        liveEventsRef.current = nextEvents;
+        setLiveEvents(nextEvents);
+        if (modeAtRequest === 'room') {
+          for (const event of accepted) void enqueueRoomIntervention(event).catch(() => undefined);
         }
-      } catch {
-        showScopedError('analysis', '会中分析暂时不可用，转写仍在保存，正在自动重试。');
-        if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
-        analysisRetryTimerRef.current = window.setTimeout(() => setAnalysisRetryTick((value) => value + 1), 3500);
-      } finally {
-        window.clearTimeout(requestTimer);
       }
-    }, roomCooldown);
+      return true;
+    } catch {
+      if (generation !== analysisGenerationRef.current) return true;
+      showScopedError('analysis', '会中分析暂时不可用，转写仍在保存，正在自动重试。');
+      if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
+      analysisRetryTimerRef.current = window.setTimeout(() => setAnalysisRetryTick((value) => value + 1), 3500);
+      return false;
+    } finally {
+      window.clearTimeout(requestTimer);
+      analysisControllersRef.current.delete(controller);
+    }
+  }, [clearScopedError, enqueueRoomIntervention, showScopedError]);
+
+  useEffect(() => {
+    if (screen !== 'meeting' || mode !== 'live' || !running) return;
+    const analysisLines = stableLiveAnalysisLines(liveLines);
+    if (!analysisLines.length) return;
+    const snapshotKey = analysisLines.map((line) => `${line.id}:${line.speakerId}:${line.text}`).join('|');
+    if (!snapshotKey || snapshotKey === lastAnalyzedRef.current) return;
+    const generation = analysisGenerationRef.current;
+    const configAtRequest = { ...displayConfig, agenda: [...displayConfig.agenda], attendees: displayConfig.attendees.map((person) => ({ ...person })) };
+    liveAnalysisQueueRef.current.enqueue(snapshotKey, async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      if (generation !== analysisGenerationRef.current) return;
+      const succeeded = await runAnalysisSnapshot({ analysisLines, modeAtRequest: 'live', configAtRequest, snapshotKey, generation });
+      if (!succeeded) liveAnalysisQueueRef.current.forget(snapshotKey);
+    });
+  }, [screen, mode, running, liveLines, displayConfig, analysisRetryTick, runAnalysisSnapshot]);
+
+  useEffect(() => {
+    if (screen !== 'meeting' || mode !== 'room' || !running) return;
+    const analysisLines = [...liveLines, ...roomDraftLines];
+    if (!analysisLines.some((line) => line.text.trim().length >= 4)) return;
+    const snapshotKey = analysisLines.map((line) => `${line.id}:${line.speakerId}:${line.text}`).join('|');
+    if (!snapshotKey || snapshotKey === lastAnalyzedRef.current) return;
+    const generation = analysisGenerationRef.current;
+    const configAtRequest = { ...displayConfig, agenda: [...displayConfig.agenda], attendees: displayConfig.attendees.map((person) => ({ ...person })) };
+    const analysisDelay = Math.max(250, 6000 - (Date.now() - lastRoomAnalyzedAtRef.current));
+    const timer = window.setTimeout(() => {
+      if (roomAnalysisInFlightRef.current) {
+        roomAnalysisPendingRef.current = true;
+        return;
+      }
+      roomAnalysisInFlightRef.current = true;
+      lastRoomAnalyzedAtRef.current = Date.now();
+      void runAnalysisSnapshot({ analysisLines, modeAtRequest: 'room', configAtRequest, snapshotKey, generation }).finally(() => {
+        if (generation !== analysisGenerationRef.current) return;
+        roomAnalysisInFlightRef.current = false;
+        if (roomAnalysisPendingRef.current) {
+          roomAnalysisPendingRef.current = false;
+          setAnalysisRetryTick((value) => value + 1);
+        }
+      });
+    }, analysisDelay);
     return () => window.clearTimeout(timer);
-  }, [screen, mode, running, liveAnalysisDraft, liveLines, roomDraftLines, liveEvents, selectedSpeakerId, displayConfig, analysisRetryTick, clearScopedError, enqueueRoomIntervention, showScopedError]);
+  }, [screen, mode, running, liveLines, roomDraftLines, displayConfig, analysisRetryTick, runAnalysisSnapshot]);
 
   const buildStats = useCallback((lines: TranscriptLine[], attendees: Speaker[]) => {
     const totals = new Map<string, number>(); for (const line of lines) totals.set(line.speakerId, (totals.get(line.speakerId) || 0) + Math.max(1, line.end - line.at));
@@ -1201,6 +1343,7 @@ function HostMeetingApp() {
   }, [completeRoomReport, mode, roomSnapshot, screen]);
 
   const resetSession = useCallback(() => {
+    invalidateAnalysis();
     const session = roomSessionRef.current;
     const snapshot = roomSnapshotRef.current;
     if (session && (snapshot?.status === 'live' || snapshot?.status === 'closing')) void postRoom({ action: 'control', code: session.code, status: 'ended' }, session.hostToken).catch(() => undefined);
@@ -1234,10 +1377,12 @@ function HostMeetingApp() {
     setLiveLines([]);
     setRoomDraftLines([]);
     setLiveDraft('');
+    liveEventsRef.current = [];
     setLiveEvents([]);
     setLiveStatus(null);
     engineRef.current = null;
     setEngine(null);
+    setSingleTurnBusy(false);
     setHostMicActive(false);
     setRoomClosing(false);
     setRoomEndInFlight(false);
@@ -1253,18 +1398,31 @@ function HostMeetingApp() {
     setReportLoading(false);
     fullRecognitionRef.current = '';
     committedCharsRef.current = 0;
+    liveDraftSpeakerRef.current = null;
+    liveDraftStartedAtRef.current = null;
     roomRecognitionRef.current = '';
     roomCommittedCharsRef.current = 0;
     roomClientEventIdRef.current = '';
     roomDraftStartedAtRef.current = null;
     lastSpokenRef.current = '';
-    lastAnalyzedRef.current = '';
     lastRoomAnalyzedAtRef.current = 0;
-    if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
-    analysisRetryTimerRef.current = null;
     setAnalysisRetryTick(0);
-  }, []);
-  const selectSpeaker = useCallback((id: string) => { if (id === selectedSpeakerId) return; commitDraft(); setSelectedSpeakerId(id); selectedSpeakerRef.current = id; }, [selectedSpeakerId, commitDraft]);
+  }, [invalidateAnalysis]);
+  const selectSpeaker = useCallback((id: string) => {
+    if (id === selectedSpeakerId || singleTurnBusy) return;
+    commitDraft();
+    if (!transcriberRef.current) {
+      setSelectedSpeakerId(id);
+      selectedSpeakerRef.current = id;
+      return;
+    }
+    setSingleTurnBusy(true);
+    void flushLiveTurn().then((flushed) => {
+      if (!flushed) return;
+      setSelectedSpeakerId(id);
+      selectedSpeakerRef.current = id;
+    }).finally(() => setSingleTurnBusy(false));
+  }, [selectedSpeakerId, singleTurnBusy, commitDraft, flushLiveTurn]);
   const handleAction = (event: Intervention, action: 'adopt' | 'park' | 'ignore') => { setActionState((previous) => ({ ...previous, [event.id]: action === 'adopt' ? 'adopted' : action === 'park' ? 'parked' : 'ignored' })); if (action === 'park') setParkingItems((previous) => [...new Set([...previous, event.observation])]); };
   const pauseMeeting = useCallback(() => {
     if (mode === 'room') return;
@@ -1308,7 +1466,7 @@ function HostMeetingApp() {
   return <>
     <audio ref={audioRef} className="persistent-audio" preload="auto" src={verifiedRun?.audio.artifacts.master.path || '/demo/meeting-master-assistant-plan-v1.mp3'} />
     {screen === 'setup' && <SetupView config={config} health={health} verifiedRun={verifiedRun} verifiedError={verifiedError} roomSession={roomSession} roomSnapshot={roomSnapshot} roomLoading={roomLoading} roomCopied={roomCopied} onConfigure={() => setShowConfig(true)} onStart={(target) => void startMeeting(target)} onOpenRoom={() => setShowRoomDialog(true)} onCopyRoom={() => void copyRoomLink()} onStartRoom={() => roomSnapshot?.status === 'ended' ? resetSession() : void startRoomMeeting()} />}
-    {screen === 'meeting' && <MeetingView config={displayConfig} mode={mode} roomCode={roomSession?.code} roomCount={roomOnlineParticipants(roomSnapshot).length} engine={engine} elapsed={elapsed} running={running} speed={speed} soundOn={soundOn} liveStatus={liveStatus} selectedSpeakerId={selectedSpeakerId} transcript={visibleTranscript} partialTranscript={mode === 'room' ? roomDraftLines : []} liveDraft={liveDraft} events={visibleEvents} actionState={actionState} parkingItems={parkingItems} error={error} verifiedRun={verifiedRun} roomClosing={roomClosing} roomEndInFlight={roomEndInFlight} hostMicActive={hostMicActive} onPause={pauseMeeting} onSpeed={changeSpeed} onSound={changeSound} onSkip={skipToNext} onEnd={() => void endMeeting()} onReset={resetSession} onSpeaker={selectSpeaker} onCommitDraft={commitDraft} onAction={handleAction} onHostMic={toggleRoomHostMic} />}
+    {screen === 'meeting' && <MeetingView config={displayConfig} mode={mode} roomCode={roomSession?.code} roomCount={roomOnlineParticipants(roomSnapshot).length} engine={engine} elapsed={elapsed} running={running} speed={speed} soundOn={soundOn} liveStatus={liveStatus} selectedSpeakerId={selectedSpeakerId} singleTurnBusy={singleTurnBusy} transcript={visibleTranscript} partialTranscript={mode === 'room' ? roomDraftLines : []} liveDraft={liveDraft} events={visibleEvents} actionState={actionState} parkingItems={parkingItems} error={error} verifiedRun={verifiedRun} roomClosing={roomClosing} roomEndInFlight={roomEndInFlight} hostMicActive={hostMicActive} onPause={pauseMeeting} onSpeed={changeSpeed} onSound={changeSound} onSkip={skipToNext} onEnd={() => void endMeeting()} onReset={resetSession} onSpeaker={selectSpeaker} onCommitDraft={submitLiveDraft} onAction={handleAction} onHostMic={toggleRoomHostMic} />}
     {screen === 'report' && <ReportView config={displayConfig} report={report} events={mode === 'verified' ? verifiedRun?.events || [] : liveEvents} loading={reportLoading} mode={mode} onReplay={() => void startMeeting('verified')} onReset={resetSession} />}
     {showConfig && <ConfigDialog config={config} onSave={saveConfig} onClose={() => setShowConfig(false)} />}
     {showRoomDialog && <RoomDialog config={config} onCreate={createRoom} onClose={() => setShowRoomDialog(false)} />}

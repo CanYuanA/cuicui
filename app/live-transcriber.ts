@@ -10,6 +10,7 @@ export type TranscriberOptions = {
 
 export interface MeetingTranscriber {
   start(): Promise<void>;
+  flush(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -159,6 +160,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
   private reconnectFailures = 0;
   private appId = '';
   private cachedAuth: AuthPayload | null = null;
+  private sessionTransition: Promise<void> = Promise.resolve();
 
   constructor(options: TranscriberOptions) {
     this.options = options;
@@ -170,6 +172,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.pending = [];
     this.pendingOffset = 0;
     this.cachedAuth = null;
+    this.sessionTransition = Promise.resolve();
     this.resampler.reset();
     this.options.onStatus('requesting');
     try {
@@ -194,8 +197,10 @@ export class XfyunTranscriber implements MeetingTranscriber {
       processor.connect(silentSink);
       silentSink.connect(context.destination);
 
-      const firstAuth = await this.fetchAuth();
-      await this.openSession(firstAuth);
+      await this.queueSessionTransition(async () => {
+        const firstAuth = await this.fetchAuth();
+        await this.openSession(firstAuth);
+      });
       this.frameTimer = window.setInterval(() => this.sendAudioFrame(), FRAME_INTERVAL_MS);
     } catch (error) {
       this.stopping = true;
@@ -295,7 +300,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
           this.pending = [];
           this.pendingOffset = 0;
           this.resampler.reset();
-          void this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '句末续接失败'));
+          void this.queueSessionTransition(() => this.openSession()).catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '句末续接失败'));
           return;
         }
         this.scheduleReconnect(`连接关闭 ${event.code}${event.reason ? ` · ${event.reason}` : ''}`);
@@ -388,11 +393,19 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.rotationTimer = window.setTimeout(() => void this.rotateSession(), SESSION_ROTATION_MS);
   }
 
-  private async rotateSession() {
-    if (this.stopping) return;
-    this.captureEnabled = false;
-    await this.endSocketSession();
-    if (!this.stopping) await this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '轮换失败'));
+  private queueSessionTransition(operation: () => Promise<void>) {
+    const next = this.sessionTransition.then(operation, operation);
+    this.sessionTransition = next.catch(() => undefined);
+    return next;
+  }
+
+  private rotateSession() {
+    return this.queueSessionTransition(async () => {
+      if (this.stopping) return;
+      this.captureEnabled = false;
+      await this.endSocketSession();
+      if (!this.stopping) await this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '轮换失败'));
+    });
   }
 
   private endSocketSession() {
@@ -482,7 +495,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.options.onStatus('connecting');
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      void this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '重新连接失败'));
+      void this.queueSessionTransition(() => this.openSession()).catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '重新连接失败'));
     }, Math.min(3000, 500 * this.reconnectFailures));
   }
 
@@ -506,13 +519,25 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.options.onStatus('closed');
   }
 
+  async flush() {
+    if (this.stopping || !this.stream) return;
+    await this.queueSessionTransition(async () => {
+      if (this.stopping || !this.stream) return;
+      if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.captureEnabled = false;
+      await this.endSocketSession();
+      if (!this.stopping) await this.openSession();
+    });
+  }
+
   async stop() {
     if (this.stopping) return;
     this.stopping = true;
     this.captureEnabled = false;
     this.options.onStatus('finishing');
     this.clearTimers();
-    await this.endSocketSession();
+    await this.queueSessionTransition(() => this.endSocketSession());
     this.finishCurrentText();
     this.releaseMedia();
     this.options.onStatus('closed');

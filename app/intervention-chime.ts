@@ -23,7 +23,7 @@ export function playInterventionChime(level: InterventionLevel) {
     const end = start + .46;
     const master = context.createGain();
     master.gain.setValueAtTime(.0001, start);
-    master.gain.linearRampToValueAtTime(level === 'L2' ? .045 : .034, start + .022);
+    master.gain.linearRampToValueAtTime(level === 'L2' ? .052 : .04, start + .022);
     master.gain.exponentialRampToValueAtTime(.0001, end);
     master.connect(context.destination);
 
