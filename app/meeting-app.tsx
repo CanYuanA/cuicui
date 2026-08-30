@@ -17,7 +17,7 @@ import {
 import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
 import { playInterventionChime, primeInterventionChime } from './intervention-chime';
-import { appendStableLiveLine, resolveLiveDraftSpeaker, SerialSnapshotQueue, stableLiveAnalysisLines } from './single-live-flow';
+import { appendStableLiveLine, isSingleSnapshotEventCurrent, mergeSingleInterventions, resolveLiveDraftSpeaker, SerialSnapshotQueue, stableLiveAnalysisLines } from './single-live-flow';
 import type { RoomSession, RoomSnapshot } from './room-types';
 
 type Screen = 'setup' | 'meeting' | 'report';
@@ -533,8 +533,10 @@ function HostMeetingApp() {
   const liveDraftStartedAtRef = useRef<number | null>(null);
   const lastSpokenRef = useRef('');
   const lastAnalyzedRef = useRef('');
+  const latestLiveSnapshotKeyRef = useRef('');
   const analysisGenerationRef = useRef(0);
   const analysisControllersRef = useRef(new Set<AbortController>());
+  const liveAnalysisRequestRef = useRef<{ snapshotKey: string; controller: AbortController } | null>(null);
   const liveAnalysisQueueRef = useRef(new SerialSnapshotQueue());
   const roomAnalysisInFlightRef = useRef(false);
   const roomAnalysisPendingRef = useRef(false);
@@ -547,6 +549,8 @@ function HostMeetingApp() {
     roomAnalysisInFlightRef.current = false;
     roomAnalysisPendingRef.current = false;
     lastAnalyzedRef.current = '';
+    latestLiveSnapshotKeyRef.current = '';
+    liveAnalysisRequestRef.current = null;
     if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
     analysisRetryTimerRef.current = null;
   }, []);
@@ -920,6 +924,11 @@ function HostMeetingApp() {
 
   const appendLiveLine = useCallback((line: TranscriptLine) => {
     const next = appendStableLiveLine(liveLinesRef.current, line);
+    const latestAnalysisLines = stableLiveAnalysisLines(next);
+    const latestSnapshotKey = latestAnalysisLines.map((item) => `${item.id}:${item.speakerId}:${item.text}`).join('|');
+    latestLiveSnapshotKeyRef.current = latestSnapshotKey;
+    const activeRequest = liveAnalysisRequestRef.current;
+    if (activeRequest && activeRequest.snapshotKey !== latestSnapshotKey) activeRequest.controller.abort();
     liveLinesRef.current = next;
     setLiveLines(next);
   }, []);
@@ -1136,30 +1145,40 @@ function HostMeetingApp() {
     snapshotKey: string;
     generation: number;
   }) => {
-    if (generation !== analysisGenerationRef.current) return true;
+    const liveSnapshotIsCurrent = () => modeAtRequest !== 'live' || snapshotKey === latestLiveSnapshotKeyRef.current;
+    if (generation !== analysisGenerationRef.current || !liveSnapshotIsCurrent()) return true;
     const controller = new AbortController();
+    if (modeAtRequest === 'live') liveAnalysisRequestRef.current = { snapshotKey, controller };
     analysisControllersRef.current.add(controller);
     const requestTimer = window.setTimeout(() => controller.abort(), 38_000);
     try {
       const transcript = analysisLines.map((line) => ({ id: line.id, speakerId: line.speakerId, speaker: getSpeaker(line.speakerId, configAtRequest.attendees).name, text: line.text, at: line.at, end: line.end, workRelated: line.workRelated, interrupted: line.interrupted }));
       const accessToken = await getDemoSession();
-      if (generation !== analysisGenerationRef.current) return true;
-      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: configAtRequest.title, type: configAtRequest.meetingType, durationSeconds: configAtRequest.durationSeconds, agenda: configAtRequest.agenda }, elapsedSeconds: elapsedRef.current, previousEvents: liveEventsRef.current.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })), transcript }), signal: controller.signal });
+      if (generation !== analysisGenerationRef.current || !liveSnapshotIsCurrent()) return true;
+      const snapshotElapsed = modeAtRequest === 'live'
+        ? Math.max(0, Number(analysisLines.at(-1)?.end || analysisLines.at(-1)?.at || 0))
+        : elapsedRef.current;
+      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: configAtRequest.title, type: configAtRequest.meetingType, durationSeconds: configAtRequest.durationSeconds, agenda: configAtRequest.agenda }, elapsedSeconds: snapshotElapsed, previousEvents: liveEventsRef.current.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })), transcript }), signal: controller.signal });
       const data = await response.json() as { events?: Array<Omit<Intervention, 'id'>>; error?: string };
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      if (generation !== analysisGenerationRef.current) return true;
+      if (generation !== analysisGenerationRef.current || !liveSnapshotIsCurrent()) return true;
       lastAnalyzedRef.current = snapshotKey;
       if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
       analysisRetryTimerRef.current = null;
       clearScopedError('analysis');
       if (Array.isArray(data.events) && data.events.length) {
-        const accepted = data.events.map((event, index) => ({
+        const currentEvents = modeAtRequest === 'live'
+          ? data.events.filter((event) => isSingleSnapshotEventCurrent(event, analysisLines))
+          : data.events;
+        const accepted = currentEvents.map((event, index) => ({
           ...event,
           id: `ai-${Date.now()}-${index}-${crypto.randomUUID()}`,
-          at: Number.isFinite(Number(event.at)) ? Number(event.at) : elapsedRef.current,
+          at: Number.isFinite(Number(event.at)) ? Number(event.at) : snapshotElapsed,
           actions: event.level === 'L0' ? [] : event.level === 'L2' ? ['adopt', 'park'] : ['adopt', 'ignore'],
         } as Intervention));
-        const nextEvents = mergeRoomInterventions(liveEventsRef.current, accepted);
+        const nextEvents = modeAtRequest === 'live'
+          ? mergeSingleInterventions(liveEventsRef.current, accepted)
+          : mergeRoomInterventions(liveEventsRef.current, accepted);
         liveEventsRef.current = nextEvents;
         setLiveEvents(nextEvents);
         if (modeAtRequest === 'room') {
@@ -1168,7 +1187,7 @@ function HostMeetingApp() {
       }
       return true;
     } catch {
-      if (generation !== analysisGenerationRef.current) return true;
+      if (generation !== analysisGenerationRef.current || !liveSnapshotIsCurrent()) return true;
       showScopedError('analysis', '会中分析暂时不可用，转写仍在保存，正在自动重试。');
       if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
       analysisRetryTimerRef.current = window.setTimeout(() => setAnalysisRetryTick((value) => value + 1), 3500);
@@ -1176,6 +1195,7 @@ function HostMeetingApp() {
     } finally {
       window.clearTimeout(requestTimer);
       analysisControllersRef.current.delete(controller);
+      if (liveAnalysisRequestRef.current?.controller === controller) liveAnalysisRequestRef.current = null;
     }
   }, [clearScopedError, enqueueRoomIntervention, showScopedError]);
 
@@ -1184,7 +1204,10 @@ function HostMeetingApp() {
     const analysisLines = stableLiveAnalysisLines(liveLines);
     if (!analysisLines.length) return;
     const snapshotKey = analysisLines.map((line) => `${line.id}:${line.speakerId}:${line.text}`).join('|');
+    latestLiveSnapshotKeyRef.current = snapshotKey;
     if (!snapshotKey || snapshotKey === lastAnalyzedRef.current) return;
+    const activeRequest = liveAnalysisRequestRef.current;
+    if (activeRequest && activeRequest.snapshotKey !== snapshotKey) activeRequest.controller.abort();
     const generation = analysisGenerationRef.current;
     const configAtRequest = { ...displayConfig, agenda: [...displayConfig.agenda], attendees: displayConfig.attendees.map((person) => ({ ...person })) };
     liveAnalysisQueueRef.current.enqueue(snapshotKey, async () => {
