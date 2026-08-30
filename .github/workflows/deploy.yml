@@ -203,7 +203,7 @@ jobs:
 
           public_healthy=false
           for attempt in $(seq 1 18); do
-            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true and .services.access == true and .models.analysis == "z-ai/glm-5.3-flash" and .models.report == "z-ai/glm-5.3-flash"' >/dev/null; then
+            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true and .services.access == true and .models.analysis == "qwen/qwen3.5-flash-02-23" and .models.report == "z-ai/glm-5.3-flash"' >/dev/null; then
               public_healthy=true
               break
             fi

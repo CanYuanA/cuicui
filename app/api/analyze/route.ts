@@ -174,7 +174,7 @@ export async function POST(request: Request) {
 
   const deterministic = localCandidates(input, transcript);
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_ANALYSIS_MODEL || 'z-ai/glm-5.3-flash';
+  const model = process.env.OPENROUTER_ANALYSIS_MODEL || 'qwen/qwen3.5-flash-02-23';
   if (!apiKey) return Response.json(responseShape(input, deterministic, 'local-fallback'));
 
   const elapsed = Math.max(0, Number(input.elapsedSeconds || 0));

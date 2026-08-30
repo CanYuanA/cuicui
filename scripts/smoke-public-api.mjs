@@ -40,8 +40,8 @@ const checks = {
   demoSessionIssued: sessionResponse.ok && typeof session.token === 'string',
   paidEndpointsProtected: [unauthorizedStt, unauthorizedAnalyze, unauthorizedReport, unauthorizedIflytek]
     .every((response) => response.status === 401),
-  glmModelsConfigured: healthResponse.ok
-    && health.models?.analysis === 'z-ai/glm-5.3-flash'
+  splitModelsConfigured: healthResponse.ok
+    && health.models?.analysis === 'qwen/qwen3.5-flash-02-23'
     && health.models?.report === 'z-ai/glm-5.3-flash',
 };
 const ok = Object.values(checks).every(Boolean);

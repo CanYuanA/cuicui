@@ -9,7 +9,7 @@ export async function GET() {
     ok: services.openrouter && services.iflytek && services.access,
     services,
     models: {
-      analysis: process.env.OPENROUTER_ANALYSIS_MODEL || 'z-ai/glm-5.3-flash',
+      analysis: process.env.OPENROUTER_ANALYSIS_MODEL || 'qwen/qwen3.5-flash-02-23',
       report: process.env.OPENROUTER_REPORT_MODEL || 'z-ai/glm-5.3-flash',
       transcription: process.env.OPENROUTER_STT_MODEL || 'qwen/qwen3-asr-1.7b',
     },

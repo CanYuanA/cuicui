@@ -220,7 +220,7 @@ async function main() {
   let analysisRuns = [];
   try {
     const previous = JSON.parse(readFileSync(outputPath, 'utf8'));
-    if (previous.analysisRulesVersion === 'intervention-ladder-v4' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'z-ai/glm-5.3-flash') && previous.events?.every((event) => event.type && event.level)) {
+    if (previous.analysisRulesVersion === 'intervention-ladder-v4' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'qwen/qwen3.5-flash-02-23') && previous.events?.every((event) => event.type && event.level)) {
       events = previous.events; analysisRuns = previous.analysisRuns;
       console.log('reusing verified OpenRouter analysis runs; only report will rerun');
     }
@@ -293,7 +293,7 @@ async function main() {
       masterRecognized: normalizeChinese(masterText).length >= 80,
       segmentAccuracyAcceptable: averageSegmentSimilarity >= 0.55 && segmentSimilarities.every((value) => value >= 0.2),
       analysisWasInvoked: analysisRuns.length === transcript.length,
-      analysisUsedOpenRouter: analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'z-ai/glm-5.3-flash'),
+      analysisUsedOpenRouter: analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'qwen/qwen3.5-flash-02-23'),
       reportWasInvoked: Boolean(report.summary),
       reportUsedOpenRouter: report.source === 'openrouter' && report.model === 'z-ai/glm-5.3-flash',
       reportShapeValid: typeof report.verdict === 'string' && typeof report.necessityReason === 'string' && Array.isArray(report.decisions) && Array.isArray(report.actions) && Array.isArray(report.suggestions),
