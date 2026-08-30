@@ -15,7 +15,7 @@ env:
 
 concurrency:
   group: cuicui-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -39,6 +39,17 @@ jobs:
         run: |
           npm run check
           npm run build
+
+      - name: Package versioned deployment assets
+        run: tar -czf cuicui-deploy-assets.tgz docker-compose.prod.yml scripts/verify-room-api.mjs
+
+      - name: Upload versioned deployment assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuicui-deploy-${{ github.sha }}
+          path: cuicui-deploy-assets.tgz
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -75,15 +86,24 @@ jobs:
       APP_DIRECTORY: /srv/docker/cuicui
       PUBLIC_HEALTH_URL: https://cuicui.iotaceti.top/api/health
       PUBLIC_ORIGIN: https://cuicui.iotaceti.top
-      # This ECS occasionally resets long-lived HTTP/2 Git streams. Force the
-      # checkout action's Git process onto HTTP/1.1 so a transient framing error
-      # cannot block an otherwise healthy deployment.
-      GIT_CONFIG_COUNT: "1"
-      GIT_CONFIG_KEY_0: http.version
-      GIT_CONFIG_VALUE_0: HTTP/1.1
     steps:
-      - name: Check out deployment assets
-        uses: actions/checkout@v4
+      # The self-hosted ECS has an unreliable long-lived Git route to GitHub.
+      # Fetch the two immutable deployment files as a same-run artifact instead
+      # of cloning the repository a second time on the production server.
+      - name: Download versioned deployment assets
+        uses: actions/download-artifact@v4
+        with:
+          name: cuicui-deploy-${{ github.sha }}
+          path: .
+
+      - name: Extract versioned deployment assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f cuicui-deploy-assets.tgz
+          tar -xzf cuicui-deploy-assets.tgz
+          test -f docker-compose.prod.yml
+          test -f scripts/verify-room-api.mjs
 
       # Keep deployment independent of github.com: the ECS holds its Compose
       # credentials, while the versioned Compose file comes from this commit.
