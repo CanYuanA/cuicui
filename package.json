@@ -16,6 +16,7 @@
     "room:verify": "node scripts/verify-room-api.mjs",
     "intervention:verify": "node --experimental-strip-types scripts/verify-intervention-routing.ts",
     "single:verify": "node --experimental-strip-types scripts/verify-single-live-flow.ts",
+    "transcriber:verify": "node --experimental-strip-types scripts/verify-live-transcriber.ts",
     "score:verify": "node --experimental-strip-types scripts/verify-report-scoring.ts",
     "smoke:public": "node scripts/smoke-public-api.mjs"
   },

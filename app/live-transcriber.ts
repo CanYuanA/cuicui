@@ -33,7 +33,10 @@ type AuthPayload = { url: string; appId: string; expiresAt?: number };
 const FRAME_SAMPLES = 640;
 const FRAME_INTERVAL_MS = 40;
 const SESSION_ROTATION_MS = 50_000;
-const VAD_EOS_MS = 1500;
+// Keep end-of-speech responsive while tolerating a natural thinking pause.
+// The previous 1500ms boundary could close the socket just as the next
+// sentence began; 2000ms remains far below the original 10s delay.
+const VAD_EOS_MS = 2000;
 const IFLYTEK_HOST = 'iat-api.xfyun.cn';
 const AUDIO_FORMAT = 'audio/L16;rate=16000';
 
