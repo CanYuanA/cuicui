@@ -3,7 +3,7 @@ name: Build and deploy Cuicui
 on:
   push:
     branches:
-      - main
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/dev'
     name: Check, build, and publish
     runs-on: ubuntu-latest
     steps:
@@ -61,6 +62,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
+    if: github.ref == 'refs/heads/dev'
     name: Update production service
     needs: build
     runs-on:
