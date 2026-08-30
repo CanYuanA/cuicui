@@ -229,10 +229,10 @@ function SetupView({
     <section className="hero-grid product-home">
       <div className="hero-copy">
         <p className="eyebrow"><span /> 会中干预型会议助手</p>
-        <h1 className="rotating-slogan" aria-label="让每一场会，在跑偏之前回到正题。催催助手帮您：少开会、开短会、开有意义的会。让AI做那个[铁面无情]的高效会议监督者。">
+        <h1 className="rotating-slogan" aria-label="让每一场会，在跑偏之前回到正题。催催助手帮您：少开会、开短会、开有意义的会。让 AI 做那个“铁面无情”的高效会议监督者。">
           <span className="slogan-slide"><span>让每一场会，</span><em>在跑偏之前回到正题。</em></span>
-          <span className="slogan-slide"><span>催催助手帮您：</span><span>少开会、开短会、</span><em>开有意义的会。</em></span>
-          <span className="slogan-slide"><span>让AI做那个</span><span>[铁面无情]的</span><em>高效会议监督者。</em></span>
+          <span className="slogan-slide slogan-slide-compact"><span>催催助手帮您：</span><em>少开会、开短会、开有意义的会。</em></span>
+          <span className="slogan-slide slogan-slide-medium"><span>让 AI 做那个“铁面无情”的</span><em>高效会议监督者。</em></span>
         </h1>
         <p className="hero-lead">催催听着整场讨论，在偏题、重复、争论失焦和预计超时时及时提醒。轻提醒不抢话，重要问题也不会因为对方是老板就沉默。</p>
         <div className="product-points">
