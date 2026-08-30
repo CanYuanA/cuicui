@@ -915,7 +915,8 @@ body { background: #f8f9fa; color: var(--ink); }
 .participation-list > div > b { color: #3c4043; }
 .participation-list > div > div { background: #e8eaed; }
 .attendance-advice { color: #5f6368; border-color: #d2e3fc; background: #f8fbff; }
-.suggestions-card li { color: #3c4043; }
+.suggestions-card li { color: #3c4043; border-color: #e0e3e7; background: #f8f9fa; }
+.suggestions-card li::before { color: #1967d2; border-color: #a8c7fa; background: #fff; }
 .report-footer { border-color: #dadce0; background: rgba(255,255,255,.96); box-shadow: 0 8px 24px rgba(60,64,67,.14); }
 .report-footer b { color: #3c4043; }
 .report-footer span { color: #80868b; }

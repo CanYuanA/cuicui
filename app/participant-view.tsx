@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
+import { playInterventionChime, primeInterventionChime } from './intervention-chime';
 import type { RoomSnapshot, UtteranceSource } from './room-types';
 import type { Intervention } from './demo-data';
 
@@ -49,6 +50,7 @@ function ParticipantInterventionToast({ events }: { events: Intervention[] }) {
     for (const event of events) seen.add(event.id);
     const latest = incoming.at(-1);
     if (!latest) return;
+    playInterventionChime(latest.level);
     setActive(latest);
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
@@ -377,6 +379,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
 
   const join = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    primeInterventionChime();
     const cleanName = name.trim().slice(0, 30);
     const cleanRole = (role.trim() || '参会者').slice(0, 40);
     if (!cleanName || joining) return;

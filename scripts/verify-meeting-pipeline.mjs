@@ -222,7 +222,7 @@ async function main() {
   let analysisRuns = [];
   try {
     const previous = JSON.parse(readFileSync(outputPath, 'utf8'));
-    if (previous.analysisRulesVersion === 'intervention-ladder-v3' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
+    if (previous.analysisRulesVersion === 'intervention-ladder-v4' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
       events = previous.events; analysisRuns = previous.analysisRuns;
       console.log('reusing verified OpenRouter analysis runs; only report will rerun');
     }
@@ -265,7 +265,7 @@ async function main() {
   const masterText = masterSessions.map((session) => session.text).join('');
   const evidence = {
     schemaVersion: 2,
-    analysisRulesVersion: 'intervention-ladder-v3',
+    analysisRulesVersion: 'intervention-ladder-v4',
     scoringVersion: 'meeting-radar-v3',
     verifiedAt: new Date().toISOString(),
     provenance: {
@@ -299,8 +299,14 @@ async function main() {
       reportWasInvoked: Boolean(report.summary),
       reportUsedOpenRouter: report.source === 'openrouter',
       reportShapeValid: typeof report.verdict === 'string' && typeof report.necessityReason === 'string' && Array.isArray(report.decisions) && Array.isArray(report.actions) && Array.isArray(report.suggestions),
+      reportActionsClean: report.actions.every((action) => !/(?:会议结束|散会)/.test(String(action.task || ''))
+        && !fixture.speakers.some((speaker) => speaker.name !== action.owner && String(action.task || '').includes(speaker.name))),
       interventionLadderValid: events.some((event) => event.level === 'L0') && events.some((event) => event.level === 'L1') && events.some((event) => event.level === 'L2'),
-      interruptEscalationValid: events.filter((event) => event.type === 'interrupt' && event.incidentKey === 'interrupt:boss').slice(0, 3).map((event) => event.level).join(',') === 'L0,L0,L2',
+      disagreementDetected: events.some((event) => event.type === 'disagreement' && event.level !== 'L0'),
+      disagreementEscalationValid: events.filter((event) => event.type === 'disagreement' && event.incidentKey === 'disagreement:current-agenda').slice(0, 2).map((event) => event.level).join(',') === 'L1,L2',
+      interruptionCountReduced: events.filter((event) => event.type === 'interrupt').length >= 1 && events.filter((event) => event.type === 'interrupt').length <= 2,
+      interruptNeverDominates: events.filter((event) => event.type === 'interrupt').every((event) => event.level !== 'L2' && event.priority < 200),
+      sequentialDisagreementIsNotInterrupt: transcript.some((line, index) => line.id === 'u10' && transcript[index + 1]?.id === 'u11' && line.end <= transcript[index + 1].at),
       scoreShapeValid: Array.isArray(report.scores) && report.scores.length === 5 && report.scores.every((score) => Number.isFinite(score.value) && score.value >= 0 && score.value <= 100),
     },
     quality: { averageSegmentSimilarity, segmentSimilarities },

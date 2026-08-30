@@ -135,7 +135,7 @@ export const TOPIC_SEGMENTS = [
   { start: 0, end: 27, label: '方案收集', tone: 'focus' },
   { start: 27, end: 37, label: '短暂闲聊', tone: 'warning' },
   { start: 37, end: 42, label: '回到上线条件', tone: 'success' },
-  { start: 42, end: 64, label: '打断与时间风险', tone: 'critical' },
+  { start: 42, end: 64, label: '分歧与时间风险', tone: 'critical' },
   { start: 64, end: 82, label: '风险收敛', tone: 'focus' },
   { start: 82, end: 100, label: '决策与行动', tone: 'success' },
 ] as const;

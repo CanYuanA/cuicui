@@ -16,6 +16,7 @@ import {
 } from './demo-data';
 import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
+import { playInterventionChime, primeInterventionChime } from './intervention-chime';
 import type { RoomSession, RoomSnapshot } from './room-types';
 
 type Screen = 'setup' | 'meeting' | 'report';
@@ -70,24 +71,6 @@ function serviceLabel(health: ServiceHealth | null) {
   return ready === 3 ? '实时服务已就绪' : `${ready}/3 服务就绪`;
 }
 
-function playInterventionTone(level: Intervention['level']) {
-  const AudioContextClass = window.AudioContext;
-  const context = new AudioContextClass();
-  const play = (frequency: number, offset: number, duration: number) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(0, context.currentTime + offset);
-    gain.gain.linearRampToValueAtTime(.07, context.currentTime + offset + .012);
-    gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + offset + duration);
-    oscillator.connect(gain); gain.connect(context.destination);
-    oscillator.start(context.currentTime + offset); oscillator.stop(context.currentTime + offset + duration);
-  };
-  if (level === 'L1') play(660, 0, .08);
-  if (level === 'L2') { play(523, 0, .1); play(659, .14, .11); }
-  window.setTimeout(() => void context.close(), 500);
-}
-
 async function postRoom(body: Record<string, unknown>, bearer?: string, timeoutMs = 10_000) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
@@ -121,6 +104,14 @@ function mergeRoomInterventions(current: Intervention[], incoming: Intervention[
   const merged = new Map(current.map((event) => [event.id, event]));
   for (const event of incoming) merged.set(event.id, event);
   return [...merged.values()].sort((left, right) => left.at - right.at || left.id.localeCompare(right.id));
+}
+
+function latestProminentEvent(events: Intervention[]) {
+  const latestAt = events.at(-1)?.at;
+  if (latestAt === undefined) return null;
+  return events
+    .filter((event) => Math.abs(event.at - latestAt) < .05)
+    .reduce<Intervention | null>((best, event) => !best || event.priority >= best.priority ? event : best, null);
 }
 
 function ConfigDialog({ config, onSave, onClose }: { config: MeetingConfig; onSave: (value: MeetingConfig) => void; onClose: () => void }) {
@@ -237,7 +228,7 @@ function SetupView({
     <section className="hero-grid product-home">
       <div className="hero-copy">
         <p className="eyebrow"><span /> 会中干预型会议助手</p>
-        <h1>会议最贵的，<br />是没人愿意说：<em>“我们跑题了。”</em></h1>
+        <h1>让每一场会，<br /><em>在跑偏之前回到正题。</em></h1>
         <p className="hero-lead">催催听着整场讨论，在偏题、重复、争论失焦和预计超时时及时提醒。轻提醒不抢话，重要问题也不会因为对方是老板就沉默。</p>
         <div className="product-points">
           <article><b>听懂现场</b><p>转写跟着人话走，提醒只在证据出现后发生。</p></article>
@@ -250,7 +241,7 @@ function SetupView({
         <article className="mission-card demo-entry-card">
           <div className="card-topline"><span className="mode-badge">先看完整效果</span><span className="duration">约 {verifiedRun ? formatClock(verifiedRun.meeting.durationSeconds) : '02:00'}</span></div>
           <p className="card-kicker">演示会议</p><h2>{verifiedRun?.meeting.title || config.title}</h2>
-          <p className="entry-description">一场会员日上线评审。从正常同步、短暂闲聊到连续打断，字幕与提醒只在对应节点出现。</p>
+          <p className="entry-description">一场会员日上线评审。从正常同步、短暂闲聊到意见分歧与抢话，字幕与提醒只在对应节点出现。</p>
           <div className="verified-strip"><span>偏题收回</span><span>分歧收敛</span><span>超时预警</span></div>
           {!verifiedRun && <p className="fixture-error">{verifiedError || '正在准备演示会议…'}</p>}
           <button className="primary-action" type="button" disabled={!verifiedRun} onClick={() => onStart('verified')}><span className="play-mark" />开始演示会议</button>
@@ -318,7 +309,7 @@ function MeetingView({
   const [toastEvent, setToastEvent] = useState<Intervention | null>(null);
   const duration = config.durationSeconds;
   const progress = Math.max(0, Math.min(100, elapsed / duration * 100));
-  const latestEvent = events.find((event) => event.id === focusedEventId) || events.at(-1) || null;
+  const latestEvent = events.find((event) => event.id === focusedEventId) || latestProminentEvent(events);
   const hasTimeRisk = events.some((event) => event.type === 'time');
   const remaining = Math.max(0, duration - elapsed);
   const agendaIndex = mode === 'verified' ? (progress < 58 ? 0 : 1) : Math.min(Math.max(0, config.agenda.length - 1), Math.floor(progress / Math.max(1, 100 / Math.max(1, config.agenda.length))));
@@ -447,7 +438,7 @@ function HostMeetingApp() {
   const [showRoomDialog, setShowRoomDialog] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [running, setRunning] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(1.5);
   const [soundOn, setSoundOn] = useState(true);
   const [liveLines, setLiveLines] = useState<TranscriptLine[]>([]);
   const [liveDraft, setLiveDraft] = useState('');
@@ -951,17 +942,20 @@ function HostMeetingApp() {
   const startMeeting = useCallback(async (targetMode: Mode) => {
     if (targetMode === 'verified' && !verifiedRun) return;
     if (targetMode === 'room') return;
+    primeInterventionChime();
+    const verifiedSpeed = 1.5;
     const startingConfig = targetMode === 'verified' && verifiedRun ? verifiedRun.meeting : config;
     const startingSpeakerId = startingConfig.attendees[0]?.id || 'host';
-    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); setSoundOn(targetMode === 'verified'); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId);
+    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); setSpeed(targetMode === 'verified' ? verifiedSpeed : speed); setSoundOn(true); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId);
     selectedSpeakerRef.current = startingSpeakerId; lastSpokenRef.current = ''; lastAnalyzedRef.current = ''; fullRecognitionRef.current = ''; committedCharsRef.current = 0;
     if (targetMode === 'live') window.setTimeout(() => void startTranscriber(), 120);
-    if (targetMode === 'verified' && audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.playbackRate = speed; audioRef.current.muted = !soundOn; void audioRef.current.play().catch(() => { setRunning(false); showScopedError('general', '浏览器阻止了自动播放，请点击“继续”开始录音。'); }); }
-  }, [verifiedRun, config, startTranscriber, speed, soundOn, clearAllErrors, showScopedError]);
+    if (targetMode === 'verified' && audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.playbackRate = verifiedSpeed; audioRef.current.muted = false; void audioRef.current.play().catch(() => { setRunning(false); showScopedError('general', '浏览器阻止了自动播放，请点击“继续”开始录音。'); }); }
+  }, [verifiedRun, config, startTranscriber, speed, clearAllErrors, showScopedError]);
 
   const startRoomMeeting = useCallback(async () => {
     const session = roomSessionRef.current;
     if (!session) return;
+    primeInterventionChime();
     setRoomLoading(true);
     clearAllErrors();
     roomEndInFlightRef.current = false;
@@ -987,7 +981,7 @@ function HostMeetingApp() {
       setRoomDraftLines(roomTranscript(snapshot, false));
       setMode('room');
       setScreen('meeting');
-      setSoundOn(false);
+      setSoundOn(true);
       setElapsed(snapshot.startedAt ? roomElapsedNow() : 0);
       setRunning(true);
       setRoomClosing(false);
@@ -1027,10 +1021,10 @@ function HostMeetingApp() {
 
   useEffect(() => {
     if (screen !== 'meeting' || !soundOn || !visibleEvents.length) return;
-    const latest = visibleEvents.at(-1)!;
-    if (latest.level === 'L0' || lastSpokenRef.current === latest.id || actionState[latest.id] === 'ignored') return;
+    const latest = [...visibleEvents].reverse().find((event) => event.level !== 'L0');
+    if (!latest || lastSpokenRef.current === latest.id || actionState[latest.id] === 'ignored') return;
     lastSpokenRef.current = latest.id;
-    playInterventionTone(latest.level);
+    playInterventionChime(latest.level);
   }, [screen, soundOn, visibleEvents, actionState]);
 
   useEffect(() => {

@@ -96,7 +96,13 @@ function fallbackNarrative(input: ReportInput) {
         const name = String(attendee.name || '').trim();
         const nameAt = name ? clause.indexOf(name) : -1;
         if (nameAt < 0) continue;
-        const tail = clause.slice(nameAt + name.length).trim();
+        let tail = clause.slice(nameAt + name.length).trim();
+        const nextAttendeeAt = attendees
+          .filter((person) => person !== attendee)
+          .map((person) => tail.indexOf(String(person.name || '').trim()))
+          .filter((index) => index > 0)
+          .sort((left, right) => left - right)[0];
+        if (nextAttendeeAt !== undefined) tail = tail.slice(0, nextAttendeeAt).trim();
         const due = tail.match(duePattern)?.[0] || '待确认';
         const explicitlyAssigned = /^负责(?!人)/.test(tail);
         if (!explicitlyAssigned && due === '待确认') continue;
@@ -142,11 +148,13 @@ export async function POST(request: Request) {
 
   const transcriptText = transcript.map((line) => `${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 700)}`).join('\n').slice(-14000);
   const eventText = events.map((event) => `${event.type || 'event'}：${event.observation || ''}；建议：${event.suggestion || ''}`).join('\n').slice(-5000);
+  const attendeeText = (input.meeting?.attendees || []).map((person) => String(person.name || '').trim()).filter(Boolean).join('、');
   const prompt = `请为以下会议生成精炼的中文会后报告。你只做证据审计，不直接打分；数值由服务端根据转写计算。只基于转写和事件，不补造事实。
 严格规则：有效文本不足 60 字或实质轮次不足 3 次时，不得宣称完成讨论、形成共识或值得召开；未设置明确议题时不得推断隐含议题；“请某人拍板”“需要决定”“还没决定”“尚未确认”“负责人是谁”都不是决策；决策只提取明确确认的具体范围。行动项必须包含明确任务，缺少负责人时 owner 写“待确认”，缺少时间时 due 写“待确认”。没有决策和行动项时 necessity 应为“可考虑异步”。suggestions 不重复，attendanceAdvice 语气尊重，不羞辱未发言者。
 
 会议：${String(input.meeting?.title || '未命名会议')}
 议题：${(input.meeting?.agenda || []).join('；')}
+参会人：${attendeeText || '未提供'}
 转写：
 ${transcriptText}
 

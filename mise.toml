@@ -27,3 +27,6 @@ run = "npm run audio:verify"
 
 [tasks.room-verify]
 run = "npm run room:verify"
+
+[tasks.intervention-verify]
+run = "npm run intervention:verify"

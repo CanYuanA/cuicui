@@ -1,5 +1,5 @@
 import { accessErrorResponse, authorizeDemo } from '../../server/demo-access';
-import { routeInterventions, type InterventionCandidate, type PreviousIntervention } from '../../intervention-routing';
+import { findDisagreementEvidence, isContentInterruption, routeInterventions, type InterventionCandidate, type PreviousIntervention } from '../../intervention-routing';
 import type { EventType, Severity } from '../../demo-data';
 
 type TranscriptInput = {
@@ -61,6 +61,15 @@ function localCandidates(input: AnalyzeInput, transcript: TranscriptInput[]): In
     });
   }
 
+  const disagreement = findDisagreementEvidence(transcript);
+  if (disagreement && !isContentInterruption(disagreement.prior, disagreement.latest)) {
+    candidates.push({
+      at: Number(latest.end || elapsed), type: 'disagreement', severity: 'warning', incidentKey: 'disagreement:current-agenda',
+      label: '意见分歧', observation: `${disagreement.prior.speaker || '上一位发言者'}与${disagreement.latest.speaker || '当前发言者'}对同一方案持明确相反立场。`, impact: '如果只继续陈述立场，关键方案可能无法按时收敛。',
+      suggestion: '请分别说清成立条件，再由主持人明确决策标准。', evidence: `${evidenceLabel(disagreement.prior)} ↔ ${evidenceLabel(disagreement.latest)}`, confidence: .95,
+    });
+  }
+
   const ratio = elapsed / duration;
   const unresolved = /(不用|必须|至少|风险|回滚|暂停|不能|不同意|技术问题)/.test(allText.slice(-900));
   if (ratio >= .63 && !explicitDecision(allText.slice(-700)) && unresolved) {
@@ -72,13 +81,10 @@ function localCandidates(input: AnalyzeInput, transcript: TranscriptInput[]): In
     });
   }
 
-  const overlapsPrevious = Boolean(previous && latest.speaker !== previous.speaker
-    && Number.isFinite(Number(latest.at)) && Number.isFinite(Number(previous.end))
-    && Number(latest.at) < Number(previous.end) - .15);
-  if (overlapsPrevious || previous?.interrupted) {
+  if (isContentInterruption(previous, latest)) {
     candidates.push({
       at: Number(latest.end || elapsed), type: 'interrupt', severity: 'warning', incidentKey: `interrupt:${latest.speakerId || latest.speaker || 'speaker'}`,
-      label: '连续打断', observation: `${latest.speaker || '当前发言者'}在上一位成员尚未说完时开始发言。`, impact: '关键风险与回滚条件可能无法被完整表达。',
+      label: '抢话打断', observation: `${latest.speaker || '当前发言者'}使用明确抢断语句截住了上一位成员的表达。`, impact: '关键风险与回滚条件可能无法被完整表达。',
       suggestion: '请让当前发言者完成表述后再补充。', evidence: `${evidenceLabel(previous || {})} ↔ ${evidenceLabel(latest)}`, confidence: .99,
     });
   }
@@ -97,7 +103,7 @@ function localCandidates(input: AnalyzeInput, transcript: TranscriptInput[]): In
     });
   }
 
-  return candidates.slice(0, 3);
+  return candidates;
 }
 
 function parseContent(content: unknown) {
@@ -146,6 +152,19 @@ function responseShape(input: AnalyzeInput, candidates: InterventionCandidate[],
   };
 }
 
+function candidateRank(candidate: InterventionCandidate) {
+  const typeRank: Partial<Record<EventType, number>> = { disagreement: 600, time: 500, off_topic: 400, smalltalk: 400, repeat: 350, interrupt: 100 };
+  return (candidate.severity === 'critical' ? 200 : 0) + (typeRank[candidate.type] || 0);
+}
+
+function mergeCandidates(deterministic: InterventionCandidate[], model: InterventionCandidate[]) {
+  const merged: InterventionCandidate[] = [];
+  for (const candidate of [...deterministic, ...model]) {
+    if (!merged.some((existing) => existing.type === candidate.type)) merged.push(candidate);
+  }
+  return merged.sort((left, right) => candidateRank(right) - candidateRank(left)).slice(0, 3);
+}
+
 export async function POST(request: Request) {
   try { authorizeDemo(request, 'analyze'); } catch (error) { return accessErrorResponse(error) || Response.json({ error: '分析服务暂不可用' }, { status: 500 }); }
   let input: AnalyzeInput;
@@ -162,7 +181,7 @@ export async function POST(request: Request) {
   const duration = Math.max(1, Number(input.meeting?.durationSeconds || 1800));
   const transcriptText = transcript.map((line) => `[${Math.max(0, Number(line.at || 0)).toFixed(1)}-${Math.max(0, Number(line.end || line.at || 0)).toFixed(1)}s] ${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 600)}`).join('\n').slice(-9000);
   const systemPrompt = `你是克制的会中事件检测器。只检测，不决定提醒层级；层级由服务端规则路由。
-严格规则：生活闲聊连续出现才算 smalltalk；工作内容偏离当前议题才算 off_topic；同一观点至少三次且没有新增事实才算 repeat；至少两轮相反立场才算 disagreement；interrupt 必须有时间重叠或 interrupted 标记；time 必须有进度与未决议题证据。正常论证不提醒。身份和职级不影响判断。每个结论必须引用最近转写原话，不得写“AI判断”。最多返回两个候选，没有充分证据返回空数组。最终输出必须符合 JSON schema。`;
+严格规则：生活闲聊连续出现才算 smalltalk；工作内容偏离当前议题才算 off_topic；同一观点至少三次且没有新增事实才算 repeat；不同发言者针对同一方案表达明确相反立场才算 disagreement；interrupt 必须在发言内容中出现“打断一下、先停、先别说、不用继续、别把”等明确抢断语义，单纯更换发言人、时间戳重叠或正常接话绝不能算 interrupt；time 必须有进度与未决议题证据。正常论证不提醒。身份和职级不影响判断。每个结论必须引用最近转写原话，不得写“AI判断”。最多返回两个候选，没有充分证据返回空数组。最终输出必须符合 JSON schema。`;
   const userPrompt = `会议：${String(input.meeting?.title || '未命名会议')}\n议题：${(input.meeting?.agenda || []).join('；') || '未设置'}\n进度：${elapsed.toFixed(0)} / ${duration.toFixed(0)} 秒\n历史事件：${previousEvents(input).map((event) => `${event.type}-${event.level}`).join('、') || '无'}\n\n最近转写：\n${transcriptText}`;
 
   try {
@@ -185,7 +204,8 @@ export async function POST(request: Request) {
     if (!response.ok) throw new Error(`OpenRouter ${response.status}`);
     const result = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
     const parsed = parseContent(result.choices?.[0]?.message?.content);
-    const candidates = deterministic.length ? deterministic : normalizeModelEvents(parsed.events);
+    const modelCandidates = normalizeModelEvents(parsed.events).filter((event) => event.type !== 'interrupt' || isContentInterruption(transcript.at(-2), transcript.at(-1)));
+    const candidates = mergeCandidates(deterministic, modelCandidates);
     return Response.json(responseShape(input, candidates, 'openrouter', { model, usage: result.usage || null }));
   } catch (error) {
     return Response.json(responseShape(input, deterministic, 'local-fallback', { degraded: true, reason: error instanceof Error ? error.message : '分析服务暂不可用' }));
