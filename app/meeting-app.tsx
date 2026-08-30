@@ -229,7 +229,11 @@ function SetupView({
     <section className="hero-grid product-home">
       <div className="hero-copy">
         <p className="eyebrow"><span /> 会中干预型会议助手</p>
-        <h1>让每一场会，<br /><em>在跑偏之前回到正题。</em></h1>
+        <h1 className="rotating-slogan" aria-label="让每一场会，在跑偏之前回到正题。催催助手帮您：少开会、开短会、开有意义的会。让AI做那个[铁面无情]的高效会议监督者。">
+          <span className="slogan-slide"><span>让每一场会，</span><em>在跑偏之前回到正题。</em></span>
+          <span className="slogan-slide"><span>催催助手帮您：</span><span>少开会、开短会、</span><em>开有意义的会。</em></span>
+          <span className="slogan-slide"><span>让AI做那个</span><span>[铁面无情]的</span><em>高效会议监督者。</em></span>
+        </h1>
         <p className="hero-lead">催催听着整场讨论，在偏题、重复、争论失焦和预计超时时及时提醒。轻提醒不抢话，重要问题也不会因为对方是老板就沉默。</p>
         <div className="product-points">
           <article><b>听懂现场</b><p>转写跟着人话走，提醒只在证据出现后发生。</p></article>
@@ -242,7 +246,7 @@ function SetupView({
         <article className="mission-card demo-entry-card">
           <div className="card-topline"><span className="mode-badge">先看完整效果</span><span className="duration">约 {verifiedRun ? formatClock(verifiedRun.meeting.durationSeconds) : '02:00'}</span></div>
           <p className="card-kicker">演示会议</p><h2>{verifiedRun?.meeting.title || config.title}</h2>
-          <p className="entry-description">一场会员日上线评审。从正常同步、短暂闲聊到意见分歧与抢话，字幕与提醒只在对应节点出现。</p>
+          <p className="entry-description">这是一场为演示而浓缩编排的会员日上线评审：将短暂闲聊、意见分歧和抢话等典型场景集中在几分钟内，便于完整体验催催在不同情况下的介入方式。</p>
           <div className="verified-strip"><span>偏题收回</span><span>分歧收敛</span><span>超时预警</span></div>
           {!verifiedRun && <p className="fixture-error">{verifiedError || '正在准备演示会议…'}</p>}
           <button className="primary-action" type="button" disabled={!verifiedRun} onClick={() => onStart('verified')}><span className="play-mark" />开始演示会议</button>

@@ -611,6 +611,27 @@ body { background: #f8f9fa; color: var(--ink); }
   font-weight: 720;
 }
 .product-home .hero-copy h1 em { color: #1a73e8; text-shadow: none; }
+.product-home .hero-copy h1.rotating-slogan {
+  display: grid;
+  min-height: 3.54em;
+}
+.slogan-slide {
+  grid-area: 1 / 1;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: home-slogan-cycle 12s ease-in-out infinite both;
+}
+.slogan-slide:nth-child(1) { animation-delay: -.6s; }
+.slogan-slide:nth-child(2) { animation-delay: 3.4s; }
+.slogan-slide:nth-child(3) { animation-delay: 7.4s; }
+@keyframes home-slogan-cycle {
+  0% { opacity: 0; transform: translateY(10px); }
+  5%, 28% { opacity: 1; transform: translateY(0); }
+  33%, 100% { opacity: 0; transform: translateY(-8px); }
+}
 .product-home .hero-lead { max-width: 610px; margin: 22px 0 28px; color: #5f6368; line-height: 1.8; font-size: 16px; }
 .product-points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .product-points article { padding: 16px 15px; border: 1px solid #e1e4e8; border-radius: 14px; background: #fff; }
@@ -693,6 +714,10 @@ body { background: #f8f9fa; color: var(--ink); }
   .product-points { grid-template-columns: 1fr; }
   .experience-options { grid-template-columns: 1fr; }
   .product-home .mission-card, .experience-card { padding: 18px; border-radius: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slogan-slide { animation: none; opacity: 0; transform: none; }
+  .slogan-slide:first-child { opacity: 1; }
 }
 
 /* Shared light workspace */
