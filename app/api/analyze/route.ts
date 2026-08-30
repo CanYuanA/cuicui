@@ -66,7 +66,7 @@ function localCandidates(input: AnalyzeInput, transcript: TranscriptInput[]): In
   if (ratio >= .63 && !explicitDecision(allText.slice(-700)) && unresolved) {
     const estimatedOverrun = Math.max(10, Math.round(duration * .17));
     candidates.push({
-      at: Math.min(elapsed, duration * .6375), type: 'time', severity: elapsed >= duration ? 'critical' : 'warning', incidentKey: 'time:meeting',
+      at: elapsed, type: 'time', severity: elapsed >= duration ? 'critical' : 'warning', incidentKey: 'time:meeting',
       label: '预计超时', observation: '发布条件仍未收敛，计划时间已经接近尾段。', impact: `按当前节奏预计超时约 ${estimatedOverrun} 秒。`,
       suggestion: '请冻结新增观点，只确认不影响上线承诺的兜底条件。', evidence: `时间进度 ${Math.round(elapsed)} / ${Math.round(duration)} 秒 · 最近转写仍有未决条件`, confidence: .96,
     });

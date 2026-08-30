@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "analysisRulesVersion": "intervention-ladder-v2",
-  "scoringVersion": "meeting-radar-v2",
-  "verifiedAt": "2026-08-30T10:34:46.912Z",
+  "analysisRulesVersion": "intervention-ladder-v3",
+  "scoringVersion": "meeting-radar-v3",
+  "verifiedAt": "2026-08-30T10:49:59.513Z",
   "provenance": {
     "kind": "real-pipeline-run",
     "statement": "录音由 MiniMax Speech 2.8 HD 逐角色生成并混音；每个真实音频片段和完整 master 均通过讯飞 IAT，随后调用本项目 analyze/report 接口。",
@@ -503,9 +503,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 1056,
-        "completion_tokens": 505,
-        "total_tokens": 1561,
-        "cost": 0.00019994,
+        "completion_tokens": 429,
+        "total_tokens": 1485,
+        "cost": 0.00018018,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -514,9 +514,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00019994,
+          "upstream_inference_cost": 0.00018018,
           "upstream_inference_prompt_cost": 0.00006864,
-          "upstream_inference_completions_cost": 0.0001313
+          "upstream_inference_completions_cost": 0.00011154
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68252,9 +68252,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 468,
-        "completion_tokens": 74,
-        "total_tokens": 542,
-        "cost": 0.00004966,
+        "completion_tokens": 185,
+        "total_tokens": 653,
+        "cost": 0.00007852,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68263,9 +68263,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00004966,
+          "upstream_inference_cost": 0.00007852,
           "upstream_inference_prompt_cost": 0.00003042,
-          "upstream_inference_completions_cost": 0.00001924
+          "upstream_inference_completions_cost": 0.0000481
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68310,9 +68310,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 536,
-        "completion_tokens": 290,
-        "total_tokens": 826,
-        "cost": 0.00011024,
+        "completion_tokens": 207,
+        "total_tokens": 743,
+        "cost": 0.00008866,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68321,9 +68321,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00011024,
+          "upstream_inference_cost": 0.00008866,
           "upstream_inference_prompt_cost": 0.00003484,
-          "upstream_inference_completions_cost": 0.0000754
+          "upstream_inference_completions_cost": 0.00005382
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68356,9 +68356,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 575,
-        "completion_tokens": 363,
-        "total_tokens": 938,
-        "cost": 0.000131755,
+        "completion_tokens": 103,
+        "total_tokens": 678,
+        "cost": 0.000064155,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68367,9 +68367,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.000131755,
+          "upstream_inference_cost": 0.000064155,
           "upstream_inference_prompt_cost": 0.000037375,
-          "upstream_inference_completions_cost": 0.00009438
+          "upstream_inference_completions_cost": 0.00002678
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68385,9 +68385,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 604,
-        "completion_tokens": 391,
-        "total_tokens": 995,
-        "cost": 0.00014092,
+        "completion_tokens": 368,
+        "total_tokens": 972,
+        "cost": 0.00013494,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68396,9 +68396,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00014092,
+          "upstream_inference_cost": 0.00013494,
           "upstream_inference_prompt_cost": 0.00003926,
-          "upstream_inference_completions_cost": 0.00010166
+          "upstream_inference_completions_cost": 0.00009568
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68431,9 +68431,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 642,
-        "completion_tokens": 396,
-        "total_tokens": 1038,
-        "cost": 0.00014469,
+        "completion_tokens": 393,
+        "total_tokens": 1035,
+        "cost": 0.00014391,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68442,9 +68442,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00014469,
+          "upstream_inference_cost": 0.00014391,
           "upstream_inference_prompt_cost": 0.00004173,
-          "upstream_inference_completions_cost": 0.00010296
+          "upstream_inference_completions_cost": 0.00010218
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68460,9 +68460,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 676,
-        "completion_tokens": 558,
-        "total_tokens": 1234,
-        "cost": 0.00018902,
+        "completion_tokens": 359,
+        "total_tokens": 1035,
+        "cost": 0.00013728,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68471,9 +68471,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00018902,
+          "upstream_inference_cost": 0.00013728,
           "upstream_inference_prompt_cost": 0.00004394,
-          "upstream_inference_completions_cost": 0.00014508
+          "upstream_inference_completions_cost": 0.00009334
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68483,7 +68483,7 @@
       },
       "events": [
         {
-          "at": 76.5,
+          "at": 76.84,
           "type": "time",
           "severity": "warning",
           "incidentKey": "time:meeting",
@@ -68524,9 +68524,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 724,
-        "completion_tokens": 379,
-        "total_tokens": 1103,
-        "cost": 0.0001456,
+        "completion_tokens": 377,
+        "total_tokens": 1101,
+        "cost": 0.00014508,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68535,9 +68535,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.0001456,
+          "upstream_inference_cost": 0.00014508,
           "upstream_inference_prompt_cost": 0.00004706,
-          "upstream_inference_completions_cost": 0.00009854
+          "upstream_inference_completions_cost": 0.00009802
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68547,7 +68547,7 @@
       },
       "events": [
         {
-          "at": 76.5,
+          "at": 83.76,
           "type": "time",
           "severity": "warning",
           "incidentKey": "time:meeting",
@@ -68572,9 +68572,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 771,
-        "completion_tokens": 366,
-        "total_tokens": 1137,
-        "cost": 0.000145275,
+        "completion_tokens": 246,
+        "total_tokens": 1017,
+        "cost": 0.000114075,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68583,9 +68583,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.000145275,
+          "upstream_inference_cost": 0.000114075,
           "upstream_inference_prompt_cost": 0.000050115,
-          "upstream_inference_completions_cost": 0.00009516
+          "upstream_inference_completions_cost": 0.00006396
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68595,7 +68595,7 @@
       },
       "events": [
         {
-          "at": 76.5,
+          "at": 91.62,
           "type": "time",
           "severity": "warning",
           "incidentKey": "time:meeting",
@@ -68606,11 +68606,9 @@
           "evidence": "时间进度 92 / 120 秒 · 最近转写仍有未决条件",
           "confidence": 0.96,
           "occurrence": 3,
-          "level": "L2",
-          "priority": 300,
-          "displayMs": 10000,
-          "replacesId": "verified-time-13-0",
-          "escalationReason": "更高优先级事件替换当前轻提醒"
+          "level": "L0",
+          "priority": 0,
+          "displayMs": 0
         }
       ]
     },
@@ -68620,9 +68618,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 808,
-        "completion_tokens": 436,
-        "total_tokens": 1244,
-        "cost": 0.00016588,
+        "completion_tokens": 378,
+        "total_tokens": 1186,
+        "cost": 0.0001508,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68631,9 +68629,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00016588,
+          "upstream_inference_cost": 0.0001508,
           "upstream_inference_prompt_cost": 0.00005252,
-          "upstream_inference_completions_cost": 0.00011336
+          "upstream_inference_completions_cost": 0.00009828
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68643,7 +68641,7 @@
       },
       "events": [
         {
-          "at": 76.5,
+          "at": 97.36,
           "type": "time",
           "severity": "warning",
           "incidentKey": "time:meeting",
@@ -68656,9 +68654,7 @@
           "occurrence": 4,
           "level": "L2",
           "priority": 300,
-          "displayMs": 10000,
-          "replacesId": "verified-time-13-0",
-          "escalationReason": "更高优先级事件替换当前轻提醒"
+          "displayMs": 10000
         }
       ]
     },
@@ -68668,9 +68664,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 856,
-        "completion_tokens": 368,
-        "total_tokens": 1224,
-        "cost": 0.00015132,
+        "completion_tokens": 371,
+        "total_tokens": 1227,
+        "cost": 0.0001521,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68679,9 +68675,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.00015132,
+          "upstream_inference_cost": 0.0001521,
           "upstream_inference_prompt_cost": 0.00005564,
-          "upstream_inference_completions_cost": 0.00009568
+          "upstream_inference_completions_cost": 0.00009646
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68714,9 +68710,9 @@
       "model": "qwen/qwen3.5-flash-02-23",
       "usage": {
         "prompt_tokens": 903,
-        "completion_tokens": 425,
-        "total_tokens": 1328,
-        "cost": 0.000169195,
+        "completion_tokens": 387,
+        "total_tokens": 1290,
+        "cost": 0.000159315,
         "is_byok": false,
         "prompt_tokens_details": {
           "cached_tokens": 0,
@@ -68725,9 +68721,9 @@
           "video_tokens": 0
         },
         "cost_details": {
-          "upstream_inference_cost": 0.000169195,
+          "upstream_inference_cost": 0.000159315,
           "upstream_inference_prompt_cost": 0.000058695,
-          "upstream_inference_completions_cost": 0.0001105
+          "upstream_inference_completions_cost": 0.00010062
         },
         "completion_tokens_details": {
           "reasoning_tokens": 0,
@@ -68868,7 +68864,7 @@
       "actions": []
     },
     {
-      "at": 76.5,
+      "at": 76.84,
       "type": "time",
       "severity": "warning",
       "incidentKey": "time:meeting",
@@ -68912,7 +68908,7 @@
       ]
     },
     {
-      "at": 76.5,
+      "at": 83.76,
       "type": "time",
       "severity": "warning",
       "incidentKey": "time:meeting",
@@ -68935,7 +68931,7 @@
       ]
     },
     {
-      "at": 76.5,
+      "at": 91.62,
       "type": "time",
       "severity": "warning",
       "incidentKey": "time:meeting",
@@ -68946,19 +68942,14 @@
       "evidence": "时间进度 92 / 120 秒 · 最近转写仍有未决条件",
       "confidence": 0.96,
       "occurrence": 3,
-      "level": "L2",
-      "priority": 300,
-      "displayMs": 10000,
-      "replacesId": "verified-time-13-0",
-      "escalationReason": "更高优先级事件替换当前轻提醒",
+      "level": "L0",
+      "priority": 0,
+      "displayMs": 0,
       "id": "verified-time-15-0",
-      "actions": [
-        "adopt",
-        "park"
-      ]
+      "actions": []
     },
     {
-      "at": 76.5,
+      "at": 97.36,
       "type": "time",
       "severity": "warning",
       "incidentKey": "time:meeting",
@@ -68972,8 +68963,6 @@
       "level": "L2",
       "priority": 300,
       "displayMs": 10000,
-      "replacesId": "verified-time-13-0",
-      "escalationReason": "更高优先级事件替换当前轻提醒",
       "id": "verified-time-16-0",
       "actions": [
         "adopt",
@@ -69124,18 +69113,18 @@
       }
     ],
     "suggestions": [
-      "建议发言时等待当前成员表述完整后再补充观点，避免打断导致信息遗漏。",
-      "建议在会议中冻结新增非核心议题的讨论，聚焦于收敛上线兜底条件。",
-      "建议将团建等生活话题移至会后沟通，确保会议时间用于关键决策。"
+      "讨论中多次出现打断发言现象，建议严格遵循发言顺序，确保技术兜底方案完整陈述后再做决策。",
+      "团建话题偏离上线评审核心议题，建议会后单独沟通以避免占用关键决策时间。",
+      "行动项虽已分配负责人，但具体执行时间点（如回传结果时间）未在决议中明确，需补充。"
     ],
     "attendanceAdvice": "本次所有参会者均有发言记录。",
     "source": "openrouter",
     "model": "qwen/qwen3.5-flash-02-23",
     "usage": {
       "prompt_tokens": 1056,
-      "completion_tokens": 505,
-      "total_tokens": 1561,
-      "cost": 0.00019994,
+      "completion_tokens": 429,
+      "total_tokens": 1485,
+      "cost": 0.00018018,
       "is_byok": false,
       "prompt_tokens_details": {
         "cached_tokens": 0,
@@ -69144,9 +69133,9 @@
         "video_tokens": 0
       },
       "cost_details": {
-        "upstream_inference_cost": 0.00019994,
+        "upstream_inference_cost": 0.00018018,
         "upstream_inference_prompt_cost": 0.00006864,
-        "upstream_inference_completions_cost": 0.0001313
+        "upstream_inference_completions_cost": 0.00011154
       },
       "completion_tokens_details": {
         "reasoning_tokens": 0,

@@ -222,7 +222,7 @@ async function main() {
   let analysisRuns = [];
   try {
     const previous = JSON.parse(readFileSync(outputPath, 'utf8'));
-    if (previous.analysisRulesVersion === 'intervention-ladder-v2' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
+    if (previous.analysisRulesVersion === 'intervention-ladder-v3' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
       events = previous.events; analysisRuns = previous.analysisRuns;
       console.log('reusing verified OpenRouter analysis runs; only report will rerun');
     }
@@ -265,8 +265,8 @@ async function main() {
   const masterText = masterSessions.map((session) => session.text).join('');
   const evidence = {
     schemaVersion: 2,
-    analysisRulesVersion: 'intervention-ladder-v2',
-    scoringVersion: 'meeting-radar-v2',
+    analysisRulesVersion: 'intervention-ladder-v3',
+    scoringVersion: 'meeting-radar-v3',
     verifiedAt: new Date().toISOString(),
     provenance: {
       kind: 'real-pipeline-run',
