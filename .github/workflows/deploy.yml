@@ -75,6 +75,12 @@ jobs:
       APP_DIRECTORY: /srv/docker/cuicui
       PUBLIC_HEALTH_URL: https://cuicui.iotaceti.top/api/health
       PUBLIC_ORIGIN: https://cuicui.iotaceti.top
+      # This ECS occasionally resets long-lived HTTP/2 Git streams. Force the
+      # checkout action's Git process onto HTTP/1.1 so a transient framing error
+      # cannot block an otherwise healthy deployment.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
     steps:
       - name: Check out deployment assets
         uses: actions/checkout@v4
