@@ -33,7 +33,7 @@ type PulseSegment = { start: number; end: number; label: string; tone: string };
 type RoomUpload = { clientEventId: string; text: string; final: boolean; startedAt: number; endedAt: number };
 type ErrorSource = 'room-sync' | 'room-upload' | 'room-intervention' | 'room-control' | 'analysis' | 'microphone' | 'general';
 
-const palette = ['#59e1ff', '#ffc857', '#a8f05a', '#a994ff', '#ff8297', '#ff9f68', '#77e0bc'];
+const palette = ['#1a73e8', '#f9ab00', '#188038', '#7e57c2', '#d93025', '#e8710a', '#00897b'];
 const cloneConfig = () => ({ ...DEFAULT_CONFIG, agenda: [...DEFAULT_CONFIG.agenda], attendees: DEFAULT_CONFIG.attendees.map((person) => ({ ...person })) });
 const ROOM_HOST_STORAGE_KEY = 'cuicui-host-room';
 const ROOM_ONLINE_WINDOW_MS = 20_000;
@@ -45,6 +45,7 @@ function roomJoinUrl(code: string) {
 function roomTranscript(room: RoomSnapshot | null, final: boolean) {
   return (room?.utterances || [])
     .filter((line) => line.final === final)
+    .sort((left, right) => left.started_at - right.started_at || left.ended_at - right.ended_at || left.id.localeCompare(right.id))
     .map((line) => ({
       id: line.id,
       at: line.started_at,
@@ -67,6 +68,24 @@ function serviceLabel(health: ServiceHealth | null) {
   if (!health) return '正在检查服务';
   const ready = Number(health.openrouter) + Number(health.iflytek) + Number(health.speech);
   return ready === 3 ? '实时服务已就绪' : `${ready}/3 服务就绪`;
+}
+
+function playInterventionTone(level: Intervention['level']) {
+  const AudioContextClass = window.AudioContext;
+  const context = new AudioContextClass();
+  const play = (frequency: number, offset: number, duration: number) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0, context.currentTime + offset);
+    gain.gain.linearRampToValueAtTime(.07, context.currentTime + offset + .012);
+    gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + offset + duration);
+    oscillator.connect(gain); gain.connect(context.destination);
+    oscillator.start(context.currentTime + offset); oscillator.stop(context.currentTime + offset + duration);
+  };
+  if (level === 'L1') play(660, 0, .08);
+  if (level === 'L2') { play(523, 0, .1); play(659, .14, .11); }
+  window.setTimeout(() => void context.close(), 500);
 }
 
 async function postRoom(body: Record<string, unknown>, bearer?: string, timeoutMs = 10_000) {
@@ -211,39 +230,45 @@ function SetupView({
   const roomActionLabel = roomSnapshot?.status === 'live' ? '返回主持台' : roomSnapshot?.status === 'closing' ? '会议收尾中' : roomSnapshot?.status === 'ended' ? '创建新会议' : '开始会议';
   return <main className="preflight-shell">
     <header className="site-header">
-      <div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议效率助手</small></span></div>
+      <div className="brand"><span className="brand-mark">催</span><span><strong>催催</strong><small>会议效率助手</small></span></div>
       <nav className="stage-track"><span className="stage active"><i>1</i> 会前</span><span className="stage-line" /><span className="stage"><i>2</i> 会中</span><span className="stage-line" /><span className="stage"><i>3</i> 会后</span></nav>
       <div className="health-pill"><span className="health-dot" />{serviceLabel(health)}</div>
     </header>
-    <section className="hero-grid evidence-first">
+    <section className="hero-grid product-home">
       <div className="hero-copy">
         <p className="eyebrow"><span /> 会中干预型会议助手</p>
-        <h1>让每一场会，<br /><em>在跑偏之前回到正题。</em></h1>
-        <p className="hero-lead">催催持续理解正在发生的讨论，在闲聊、重复、分歧和超时风险真正出现时提醒，并把结论接成下一步行动。</p>
-        <div className="evidence-ladder">
-          <article><span>01</span><div><b>听懂正在发生什么</b><p>把每段发言逐句整理成会议记录</p></div></article>
-          <article><span>02</span><div><b>该提醒时才提醒</b><p>从讨论证据判断闲聊、分歧与预计超时</p></div></article>
-          <article><span>03</span><div><b>让会议结果直接落地</b><p>会后自动整理决策、行动项与负责人</p></div></article>
+        <h1>会议最贵的，<br />是没人愿意说：<em>“我们跑题了。”</em></h1>
+        <p className="hero-lead">催催听着整场讨论，在偏题、重复、争论失焦和预计超时时及时提醒。轻提醒不抢话，重要问题也不会因为对方是老板就沉默。</p>
+        <div className="product-points">
+          <article><b>听懂现场</b><p>转写跟着人话走，提醒只在证据出现后发生。</p></article>
+          <article><b>分级介入</b><p>从静默记录到加强提醒，不轻易打断讨论。</p></article>
+          <article><b>推动结果</b><p>把分歧收敛为决定，把决定接成负责人和下一步。</p></article>
         </div>
-        <div className="principle-note"><span className="wave-dot"><i /><i /><i /><i /></span><p><strong>演示从一场会议开始。</strong>你会看到字幕、提醒和报告随着讨论自然发生。</p></div>
+        <p className="home-note">很多会议助手会在散会后告诉你哪里出了问题。催催选择在问题还来得及改变时开口。</p>
       </div>
-      <aside className="mission-card proof-mission">
-        <div className="card-topline"><span className="mode-badge">推荐演示</span><button className="edit-config" type="button" onClick={onConfigure}>编辑会议 ↗</button></div>
-        <p className="card-kicker">催催方案评审会</p><h2>{verifiedRun?.meeting.title || config.title}</h2>
-        <div className="proof-status-grid"><div><b>{verifiedRun ? formatClock(verifiedRun.meeting.durationSeconds) : '—'}</b><span>会议时长</span></div><div><b>{verifiedRun?.meeting.attendees.length || '—'}</b><span>参会角色</span></div><div><b>{verifiedRun?.events.length || '—'}</b><span>关键提醒</span></div></div>
-        {verifiedRun ? <div className="verified-strip"><span>闲聊偏题</span><span>观点分歧</span><span>预计超时</span></div> : <p className="fixture-error">{verifiedError || '正在准备演示会议…'}</p>}
-        <button className="primary-action" type="button" disabled={!verifiedRun} onClick={() => onStart('verified')}><span className="play-mark" />开始演示会议<kbd>Space</kbd></button>
-        <div className="room-divider"><span>更多体验方式</span></div>
-        {!roomSession ? <button className="room-create-button" type="button" disabled={roomLoading} onClick={onOpenRoom}>{roomLoading ? '正在创建会场…' : '创建或加入多人会议'}<span>多人协作 →</span></button> : <div className="room-ready-card">
-          <div><span>{online.length} 人在线</span><strong>{roomSession.code}</strong></div>
-          <p>{roomSession.joinUrl}</p>
-          <p>{online.length ? `在线成员：${online.map((person) => `${person.name}（${person.role}）`).join('、')}` : '正在等待成员加入'}</p>
-          <div><button type="button" onClick={onCopyRoom}>{roomCopied ? '链接已复制' : '复制分享链接'}</button><button type="button" disabled={roomLoading || roomSnapshot?.status === 'closing'} onClick={onStartRoom}>{roomLoading ? '正在进入…' : roomActionLabel}</button></div>
-        </div>}
-        <button className="secondary-action" type="button" onClick={() => onStart('live')}>使用麦克风实时体验<span>讯飞实时听写 →</span></button>
+      <aside className="entry-stack">
+        <article className="mission-card demo-entry-card">
+          <div className="card-topline"><span className="mode-badge">先看完整效果</span><span className="duration">约 {verifiedRun ? formatClock(verifiedRun.meeting.durationSeconds) : '02:00'}</span></div>
+          <p className="card-kicker">演示会议</p><h2>{verifiedRun?.meeting.title || config.title}</h2>
+          <p className="entry-description">一场会员日上线评审。从正常同步、短暂闲聊到连续打断，字幕与提醒只在对应节点出现。</p>
+          <div className="verified-strip"><span>偏题收回</span><span>分歧收敛</span><span>超时预警</span></div>
+          {!verifiedRun && <p className="fixture-error">{verifiedError || '正在准备演示会议…'}</p>}
+          <button className="primary-action" type="button" disabled={!verifiedRun} onClick={() => onStart('verified')}><span className="play-mark" />开始演示会议</button>
+        </article>
+        <article className="experience-card">
+          <div className="experience-heading"><div><p>立即体验</p><h2>现在就开一场会</h2></div><button className="edit-config" type="button" onClick={onConfigure}>编辑默认议题</button></div>
+          <div className="experience-options">
+            <button type="button" onClick={() => onStart('live')}><span>1</span><div><b>单人体验</b><p>一个人对着麦克风说话，通过切换角色模拟多人讨论。</p></div><i>→</i></button>
+            {!roomSession ? <button type="button" disabled={roomLoading} onClick={onOpenRoom}><span>2</span><div><b>多人体验</b><p>创建 6 位加入码，邀请同事用各自设备真实加入。</p></div><i>→</i></button> : <div className="room-ready-card">
+              <div><span>{online.length} 人在线</span><strong>{roomSession.code}</strong></div>
+              <p>{online.length ? `在线成员：${online.map((person) => `${person.name}（${person.role}）`).join('、')}` : '正在等待成员加入'}</p>
+              <div><button type="button" onClick={onCopyRoom}>{roomCopied ? '链接已复制' : '复制邀请'}</button><button type="button" disabled={roomLoading || roomSnapshot?.status === 'closing'} onClick={onStartRoom}>{roomLoading ? '正在进入…' : roomActionLabel}</button></div>
+            </div>}
+          </div>
+        </article>
       </aside>
     </section>
-    <footer className="preflight-footer"><span><i className={health?.iflytek ? 'status-ok' : 'status-warn'} /> 讯飞实时听写</span><span><i className={health?.openrouter ? 'status-ok' : 'status-warn'} /> 会中语义分析</span><span><i className={verifiedRun ? 'status-ok' : 'status-warn'} /> 动态会议报告</span><p>Agent 面前，老板也会被平等地催一下。</p></footer>
+    <footer className="preflight-footer"><span><i className={health?.iflytek ? 'status-ok' : 'status-warn'} /> 实时听写</span><span><i className={health?.openrouter ? 'status-ok' : 'status-warn'} /> 会中分析</span><span><i className={verifiedRun ? 'status-ok' : 'status-warn'} /> 动态复盘</span><p>催催不替任何人拍板，只让每个人更容易把话说清楚。</p></footer>
   </main>;
 }
 
@@ -251,6 +276,27 @@ function PulseTimeline({ elapsed, duration, events, compact = false, segments = 
   const progress = Math.max(0, Math.min(100, elapsed / Math.max(1, duration) * 100));
   const displayLabels = labels?.length ? labels.slice(0, 4) : ['开场', '问题', '方案', '收敛'];
   return <div className={compact ? 'pulse-widget compact' : 'pulse-widget'}><div className="pulse-widget-head"><span>会议脉冲带</span><b>{Math.round(progress)}%</b></div><div className="topic-pulse">{segments.map((segment) => { const visibleEnd = Math.min(segment.end, progress); return visibleEnd > segment.start ? <span key={`${segment.start}-${segment.label}`} className={`topic-segment ${segment.tone}`} style={{ left: `${segment.start}%`, width: `${visibleEnd - segment.start}%` }} title={segment.label} /> : null; })}{events.map((event) => <i key={event.id} className={`pulse-event ${event.severity}`} style={{ left: `${Math.min(100, event.at / Math.max(1, duration) * 100)}%` }} title={`${formatClock(event.at)} ${event.label}`} />)}<span className="pulse-progress" style={{ width: `${progress}%` }} /><span className="pulse-cursor" style={{ left: `${progress}%` }} /></div>{!compact && <div className="pulse-label-row">{displayLabels.map((label) => <span key={label}>{label}</span>)}</div>}</div>;
+}
+
+function InterventionToast({ event, onReview, onDismiss }: { event: Intervention; onReview: () => void; onDismiss: () => void }) {
+  return <aside className={`intervention-toast ${event.level.toLowerCase()}`} role="status" aria-live="assertive" style={{ '--toast-duration': `${event.displayMs || (event.level === 'L2' ? 10000 : 7000)}ms` } as CSSProperties}>
+    <div><span>{event.level} 提醒</span><time>{formatClock(event.at)}</time></div>
+    <h2>{event.label}</h2>
+    <p>{event.suggestion}</p>
+    <footer><button type="button" onClick={onReview}>查看依据</button><button type="button" onClick={onDismiss}>知道了</button></footer>
+    <i className="toast-countdown" />
+  </aside>;
+}
+
+function TranscriptEntry({ line, speakers, draft = false, latest = false }: { line: TranscriptLine; speakers: Speaker[]; draft?: boolean; latest?: boolean }) {
+  const speaker = getSpeaker(line.speakerId, speakers);
+  return <article className={`transcript-line${latest ? ' latest' : ''}${draft ? ' draft' : ''}`} style={{ '--speaker': speaker.color } as CSSProperties}>
+    <time>{formatClock(line.at)}</time><span className="line-avatar">{speaker.short}</span><div>
+      <p className="speaker-name">{speaker.name}{speaker.isPriority && <em>拍板人</em>}{line.interrupted && <em className="interrupted">被打断</em>}{draft && <em>听写中</em>}</p>
+      <p className="line-copy">{line.text || '（本句未识别）'}{draft && <span className="typing-cursor" />}</p>
+      {!draft && <span className="line-topic"># {line.topic || '实时讨论'}</span>}
+    </div>
+  </article>;
 }
 
 function MeetingView({
@@ -266,9 +312,13 @@ function MeetingView({
   onSpeaker: (id: string) => void; onCommitDraft: () => void; onAction: (event: Intervention, action: 'adopt' | 'park' | 'ignore') => void; onHostMic: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const seenToastIdsRef = useRef(new Set<string>());
+  const toastTimerRef = useRef<number | null>(null);
+  const [focusedEventId, setFocusedEventId] = useState('');
+  const [toastEvent, setToastEvent] = useState<Intervention | null>(null);
   const duration = config.durationSeconds;
   const progress = Math.max(0, Math.min(100, elapsed / duration * 100));
-  const latestEvent = events.at(-1) || null;
+  const latestEvent = events.find((event) => event.id === focusedEventId) || events.at(-1) || null;
   const hasTimeRisk = events.some((event) => event.type === 'time');
   const remaining = Math.max(0, duration - elapsed);
   const agendaIndex = mode === 'verified' ? (progress < 58 ? 0 : 1) : Math.min(Math.max(0, config.agenda.length - 1), Math.floor(progress / Math.max(1, 100 / Math.max(1, config.agenda.length))));
@@ -286,19 +336,82 @@ function MeetingView({
   const totalSpeech = Math.max(1, [...speakerSeconds.values()].reduce((sum, value) => sum + value, 0));
   const modeCopy = mode === 'verified' ? '演示会议 · 提醒随讨论出现' : mode === 'room' ? `多人会场 ${roomCode} · ${roomCount || 1} 人在线` : `单人麦克风 · ${engine === 'iflytek' ? '讯飞实时听写' : liveStatus || '准备中'}`;
   const partialTranscriptKey = partialTranscript.map((line) => `${line.id}:${line.text}`).join('|');
+  const orderedTranscript = useMemo(() => {
+    const stable = transcript.map((line) => ({ line, draft: false, key: `final-${line.id}` }));
+    if (mode !== 'room') return stable;
+    const drafts = partialTranscript.filter((line) => !(liveDraft && line.speakerId === selectedSpeakerId)).map((line) => ({ line, draft: true, key: `draft-${line.id}` }));
+    return [...stable, ...drafts].sort((left, right) => left.line.at - right.line.at || left.line.end - right.line.end || left.key.localeCompare(right.key));
+  }, [liveDraft, mode, partialTranscript, selectedSpeakerId, transcript]);
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }); }, [transcript.length, liveDraft, partialTranscriptKey]);
+  useEffect(() => {
+    const latestAttention = [...events].reverse().find((event) => event.level !== 'L0');
+    if (!latestAttention || seenToastIdsRef.current.has(latestAttention.id)) return;
+    seenToastIdsRef.current.add(latestAttention.id);
+    setToastEvent(latestAttention);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastEvent((current) => current?.id === latestAttention.id ? null : current);
+      toastTimerRef.current = null;
+    }, latestAttention.displayMs || (latestAttention.level === 'L2' ? 10000 : 7000));
+  }, [events]);
+  useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
+  const reviewEvent = (event: Intervention) => {
+    setFocusedEventId(event.id);
+    setToastEvent(null);
+    window.setTimeout(() => document.getElementById(`intervention-${event.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  };
   return <main className={mode === 'verified' ? 'meeting-shell has-audio-proof' : mode === 'room' ? 'meeting-shell mode-room' : 'meeting-shell'}>
-    <header className="meeting-header"><button className="brand brand-button" type="button" disabled={mode === 'room' && roomEndInFlight} onClick={mode === 'room' ? onEnd : onReset}><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议效率助手</small></span></button><div className="meeting-title"><span className={mode === 'verified' ? 'live-dot demo' : 'live-dot'} /><div><b>{config.title}</b><small>{modeCopy}</small></div></div><div className="meeting-controls">{mode === 'room' ? <button type="button" className={hostMicActive ? 'control-chip room-mic-control active' : 'control-chip room-mic-control'} disabled={roomClosing || roomEndInFlight} onClick={onHostMic}>{hostMicActive ? '关闭主持麦克风' : '开启主持麦克风'}</button> : <>{mode === 'verified' && <button type="button" className="control-chip" onClick={onSpeed}>{speed}×</button>}<button type="button" className={soundOn ? 'control-chip active' : 'control-chip'} onClick={onSound}>{soundOn ? '声音开' : '声音关'}</button><button type="button" className="control-chip" onClick={onPause}>{running ? '暂停' : '继续'}</button></>}<button type="button" className="end-button" disabled={roomEndInFlight} onClick={onEnd}>{roomEndInFlight ? '正在收尾…' : roomClosing ? '完成收尾' : '结束会议'}</button></div></header>
+    <header className="meeting-header"><button className="brand brand-button" type="button" disabled={mode === 'room' && roomEndInFlight} onClick={mode === 'room' ? onEnd : onReset}><span className="brand-mark">催</span><span><strong>催催</strong><small>会议效率助手</small></span></button><div className="meeting-title"><span className={mode === 'verified' ? 'live-dot demo' : 'live-dot'} /><div><b>{config.title}</b><small>{modeCopy}</small></div></div><div className="meeting-controls">{mode === 'room' ? <button type="button" className={hostMicActive ? 'control-chip room-mic-control active' : 'control-chip room-mic-control'} disabled={roomClosing || roomEndInFlight} onClick={onHostMic}>{hostMicActive ? '关闭主持麦克风' : '开启主持麦克风'}</button> : <>{mode === 'verified' && <button type="button" className="control-chip" onClick={onSpeed}>{speed}×</button>}<button type="button" className={soundOn ? 'control-chip active' : 'control-chip'} onClick={onSound}>{soundOn ? '声音开' : '声音关'}</button><button type="button" className="control-chip" onClick={onPause}>{running ? '暂停' : '继续'}</button></>}<button type="button" className="end-button" disabled={roomEndInFlight} onClick={onEnd}>{roomEndInFlight ? '正在收尾…' : roomClosing ? '完成收尾' : '结束会议'}</button></div></header>
+    {toastEvent && <InterventionToast event={toastEvent} onReview={() => reviewEvent(toastEvent)} onDismiss={() => setToastEvent(null)} />}
     {mode === 'verified' && verifiedRun && <section className="audio-proof-bar"><div><span className="proof-icon">REC</span><div><b>会议录音</b><p>字幕和提醒会随着实际进度逐步出现</p></div></div><button className={running ? 'audio-transport playing' : 'audio-transport'} type="button" onClick={onPause}><i /><span><b>{running ? '会议进行中' : '会议已暂停'}</b><small>{formatClock(elapsed)} / {formatClock(config.durationSeconds)} · 点击{running ? '暂停' : '继续'}</small></span></button></section>}
     <section className="time-command"><div className="topic-now"><small>当前议题</small><b>{visibleAgenda}</b></div><div className="time-progress"><div className="time-copy"><span>已进行 {formatClock(elapsed)}</span><strong>剩余 {formatClock(remaining)}</strong><span>{mode === 'verified' ? '会议时间轴' : '实时语义分析'}</span></div><div className="time-track"><i style={{ width: `${progress}%` }} className={progress >= 90 ? 'danger' : progress >= 75 ? 'warning' : ''} /></div></div><div className={hasTimeRisk || progress >= 75 ? 'forecast warning' : 'forecast'}><small>节奏预测</small><b>{hasTimeRisk ? '预计超时 · 请立即收敛' : progress < 58 ? '按时推进' : progress < 75 ? '需要收敛' : progress < 92 ? '决策时间不足' : '准备生成报告'}</b></div></section>
     {(error || roomClosing) && <div className="service-error" role="status"><b>{roomClosing ? '会议收尾中' : '链路提示'}</b><span>{roomClosing ? '正在等待所有成员提交最后一句，随后生成完整报告。' : error}</span></div>}
     <section className="meeting-grid"><section className="transcript-panel"><div className="panel-heading"><div><p>{mode === 'verified' ? '随发言更新' : '实时现场'}</p><h2>会议字幕</h2></div><div className="signal-bars"><i /><i /><i /><i /><i /></div></div>
       {mode === 'live' && <div className="speaker-switcher"><span>当前发言者</span>{config.attendees.map((person, index) => <button type="button" key={person.id} className={selectedSpeakerId === person.id ? 'speaker-pill active' : 'speaker-pill'} onClick={() => onSpeaker(person.id)} style={{ '--speaker': person.color } as CSSProperties}><i>{person.short}</i>{person.name}<kbd>{index + 1}</kbd></button>)}<button type="button" className="commit-draft" disabled={!liveDraft.trim()} onClick={onCommitDraft}>提交这一句</button></div>}
       {mode === 'room' && <div className="room-live-banner"><b>多人会议进行中</b><span>正在聚合 {roomCount || 1} 位成员的实时转写</span><strong>{roomCode}</strong></div>}
-      <div className="transcript-list" ref={listRef} aria-live="polite">{transcript.length === 0 && partialTranscript.length === 0 && !liveDraft && <div className="list-empty"><span className="listening-orbit"><i /></span><b>{mode === 'room' ? '等待参会者发言…' : mode === 'verified' ? '会议开始后，字幕会逐句出现' : '正在等待第一句话…'}</b><p>每句发言结束后形成稳定字幕。</p></div>}{transcript.map((line, index) => { const speaker = getSpeaker(line.speakerId, config.attendees); return <article className={index === transcript.length - 1 ? 'transcript-line latest' : 'transcript-line'} key={line.id} style={{ '--speaker': speaker.color } as CSSProperties}><time>{formatClock(line.at)}</time><span className="line-avatar">{speaker.short}</span><div><p className="speaker-name">{speaker.name}{speaker.isPriority && <em>拍板人</em>}{line.interrupted && <em className="interrupted">被打断</em>}</p><p className="line-copy">{line.text || '（本句未识别）'}</p><span className="line-topic"># {line.topic || '实时讨论'}</span></div></article>; })}{partialTranscript.filter((line) => !(liveDraft && line.speakerId === selectedSpeakerId)).map((line) => { const speaker = getSpeaker(line.speakerId, config.attendees); return <article className="transcript-line latest draft" key={`partial-${line.id}`} style={{ '--speaker': speaker.color } as CSSProperties}><time>{formatClock(line.at)}</time><span className="line-avatar">{speaker.short}</span><div><p className="speaker-name">{speaker.name}<em>听写中</em></p><p className="line-copy">{line.text}<span className="typing-cursor" /></p></div></article>; })}{liveDraft && <article className="transcript-line latest draft" style={{ '--speaker': getSpeaker(selectedSpeakerId, config.attendees).color } as CSSProperties}><time>{formatClock(elapsed)}</time><span className="line-avatar">{getSpeaker(selectedSpeakerId, config.attendees).short}</span><div><p className="speaker-name">{getSpeaker(selectedSpeakerId, config.attendees).name}<em>听写中</em></p><p className="line-copy">{liveDraft}<span className="typing-cursor" /></p></div></article>}</div>
-    </section><aside className="assistant-panel"><div className="assistant-heading"><div><span className="ai-orb"><i /></span><div><p>CUICUI AGENT</p><h2>现场干预</h2></div></div><span className="agent-state"><i /> {roomClosing ? '正在收尾' : running ? '持续分析' : '已暂停'}</span></div><section className={latestEvent ? `intervention-card ${latestEvent.severity}` : 'intervention-card calm'}>{!latestEvent ? <div className="calm-state"><span>✓</span><div><b>尚无充分介入证据</b><p>正在结合转写、议题和剩余时间判断。</p></div></div> : <><div className="intervention-top"><span>{latestEvent.label}</span><time>{formatClock(latestEvent.at)}</time></div><div className="intervention-copy"><p><b>观察</b>{latestEvent.observation}</p><p><b>影响</b>{latestEvent.impact}</p><p><b>建议</b>{latestEvent.suggestion}</p></div><div className="evidence-line"><span>判断依据</span><b>{latestEvent.evidence}</b></div>{latestEvent.actions && !actionState[latestEvent.id] && <div className="intervention-actions">{latestEvent.actions.includes('adopt') && <button type="button" onClick={() => onAction(latestEvent, 'adopt')}>采纳建议</button>}{latestEvent.actions.includes('park') && <button type="button" onClick={() => onAction(latestEvent, 'park')}>放入停车场</button>}{latestEvent.actions.includes('ignore') && <button type="button" className="quiet" onClick={() => onAction(latestEvent, 'ignore')}>忽略</button>}</div>}{actionState[latestEvent.id] && <div className="action-confirmed">✓ 本次操作已记录</div>}</>}</section><PulseTimeline elapsed={elapsed} duration={duration} events={events} segments={liveSegments} labels={mode === 'verified' ? undefined : config.agenda} /><section className="speaker-stats"><div className="mini-section-head"><span>发言分布</span><b>{transcript.length} 段转写</b></div>{config.attendees.map((person) => { const seconds = speakerSeconds.get(person.id) || 0; const share = seconds / totalSpeech * 100; return <div className="speaker-stat" key={person.id}><span className="stat-avatar" style={{ background: person.color }}>{person.short}</span><span className="stat-name">{person.name}</span><div className="stat-bar"><i style={{ width: `${share}%`, background: person.color }} /></div><b>{Math.round(share)}%</b></div>; })}</section>{parkingItems.length > 0 && <section className="parking-lot"><div className="mini-section-head"><span>会后停车场</span><b>{parkingItems.length} 项</b></div>{parkingItems.map((item) => <p key={item}>↳ {item}</p>)}</section>}</aside></section>
-    <footer className="meeting-footer"><span>{mode === 'verified' ? '会议字幕同步中' : '同类提醒冷却 20 秒'}</span><span>催催正在判断是否需要介入</span>{mode === 'verified' && <button type="button" onClick={onSkip}>跳到下个触发点 →</button>}</footer>
+      <div className="transcript-list" ref={listRef} aria-live="polite">
+        {orderedTranscript.length === 0 && !liveDraft && <div className="list-empty"><span className="listening-orbit"><i /></span><b>{mode === 'room' ? '等待参会者发言…' : mode === 'verified' ? '会议开始后，字幕会逐句出现' : '正在等待第一句话…'}</b><p>每句话说完后，才会形成稳定字幕。</p></div>}
+        {orderedTranscript.map((item, index) => <TranscriptEntry key={item.key} line={item.line} speakers={config.attendees} draft={item.draft} latest={index === orderedTranscript.length - 1} />)}
+        {liveDraft && <TranscriptEntry line={{ id: 'local-draft', at: elapsed, end: elapsed, speakerId: selectedSpeakerId, text: liveDraft, topic: '实时讨论', workRelated: true }} speakers={config.attendees} draft latest />}
+      </div>
+    </section><aside className="assistant-panel">
+      <div className="assistant-heading"><div><span className="ai-orb"><i /></span><div><p>催催提醒</p><h2>现场干预</h2></div></div><span className="agent-state"><i /> {roomClosing ? '正在收尾' : running ? '持续分析' : '已暂停'}</span></div>
+      <section id={latestEvent ? `intervention-${latestEvent.id}` : undefined} className={latestEvent ? `intervention-card ${latestEvent.severity} level-${latestEvent.level.toLowerCase()}` : 'intervention-card calm'}>
+        {!latestEvent ? <div className="calm-state"><span>✓</span><div><b>尚无充分介入证据</b><p>正在结合转写、议题和剩余时间判断。</p></div></div> : <>
+          <div className="intervention-top"><span><i>{latestEvent.level}</i>{latestEvent.label}</span><time>{formatClock(latestEvent.at)}</time></div>
+          <div className="intervention-copy"><p><b>观察</b>{latestEvent.observation}</p><p><b>影响</b>{latestEvent.impact}</p><p><b>建议</b>{latestEvent.suggestion}</p></div>
+          <div className="evidence-line"><span>判断依据</span><b>{latestEvent.evidence}</b></div>
+          {latestEvent.actions && latestEvent.actions.length > 0 && !actionState[latestEvent.id] && <div className="intervention-actions">{latestEvent.actions.includes('adopt') && <button type="button" onClick={() => onAction(latestEvent, 'adopt')}>采纳建议</button>}{latestEvent.actions.includes('park') && <button type="button" onClick={() => onAction(latestEvent, 'park')}>放入停车场</button>}{latestEvent.actions.includes('ignore') && <button type="button" className="quiet" onClick={() => onAction(latestEvent, 'ignore')}>忽略</button>}</div>}
+          {actionState[latestEvent.id] && <div className="action-confirmed">✓ 本次操作已记录</div>}
+        </>}
+      </section>
+      {events.length > 0 && <section className="intervention-feed"><div className="mini-section-head"><span>干预记录</span><b>{events.length} 条</b></div>{[...events].reverse().map((event) => <button type="button" key={event.id} className={event.id === latestEvent?.id ? 'active' : ''} onClick={() => reviewEvent(event)}><i className={event.level.toLowerCase()}>{event.level}</i><span><b>{event.label}</b><small>{event.level === 'L0' ? '静默记录' : event.level === 'L1' ? '轻提醒' : '强化提醒'}</small></span><time>{formatClock(event.at)}</time></button>)}</section>}
+      <PulseTimeline elapsed={elapsed} duration={duration} events={events} segments={liveSegments} labels={mode === 'verified' ? undefined : config.agenda} />
+      <section className="speaker-stats"><div className="mini-section-head"><span>发言分布</span><b>{transcript.length} 段转写</b></div>{config.attendees.map((person) => { const seconds = speakerSeconds.get(person.id) || 0; const share = seconds / totalSpeech * 100; return <div className="speaker-stat" key={person.id}><span className="stat-avatar" style={{ background: person.color }}>{person.short}</span><span className="stat-name">{person.name}</span><div className="stat-bar"><i style={{ width: `${share}%`, background: person.color }} /></div><b>{Math.round(share)}%</b></div>; })}</section>
+      {parkingItems.length > 0 && <section className="parking-lot"><div className="mini-section-head"><span>会后停车场</span><b>{parkingItems.length} 项</b></div>{parkingItems.map((item) => <p key={item}>↳ {item}</p>)}</section>}
+    </aside></section>
+    <footer className="meeting-footer"><span>{mode === 'verified' ? '会议字幕同步中' : '普通提醒间隔至少 8 秒'}</span><span>催催正在判断是否需要介入</span>{mode === 'verified' && <button type="button" onClick={onSkip}>跳到下个触发点 →</button>}</footer>
   </main>;
+}
+
+function ScoreRadar({ scores }: { scores: MeetingReport['scores'] }) {
+  const safeScores = scores.length >= 3 ? scores : EMPTY_REPORT.scores;
+  const center = 160;
+  const radius = 88;
+  const labelRadius = 122;
+  const point = (index: number, scale: number) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / safeScores.length;
+    return [center + Math.cos(angle) * radius * scale, center + Math.sin(angle) * radius * scale] as const;
+  };
+  const polygon = (scale: number) => safeScores.map((_, index) => point(index, scale).join(',')).join(' ');
+  const data = safeScores.map((score, index) => point(index, Math.max(0, Math.min(100, score.value)) / 100).join(',')).join(' ');
+  return <div className="radar-wrap"><svg className="score-radar" viewBox="0 0 320 320" role="img" aria-labelledby="score-radar-title score-radar-desc">
+    <title id="score-radar-title">会议质量五维雷达</title><desc id="score-radar-desc">{safeScores.map((score) => `${score.label} ${score.value} 分`).join('，')}</desc>
+    {[.25, .5, .75, 1].map((scale) => <polygon key={scale} points={polygon(scale)} className="radar-grid" />)}
+    {safeScores.map((_, index) => { const [x, y] = point(index, 1); return <line key={index} x1={center} y1={center} x2={x} y2={y} className="radar-axis" />; })}
+    <polygon points={data} className="radar-data" />
+    {safeScores.map((score, index) => { const [x, y] = point(index, Math.max(0, Math.min(100, score.value)) / 100); const angle = -Math.PI / 2 + index * Math.PI * 2 / safeScores.length; const labelX = center + Math.cos(angle) * labelRadius; const labelY = center + Math.sin(angle) * labelRadius; return <g key={score.key}><circle cx={x} cy={y} r="4" className="radar-point" /><text x={labelX} y={labelY} textAnchor="middle" className="radar-label"><tspan x={labelX}>{score.label}</tspan><tspan x={labelX} dy="17">{score.value}</tspan></text></g>; })}
+  </svg><div className="score-legend">{safeScores.map((score) => <div key={score.key}><span>{score.label}</span><p>{score.detail}</p><b>{score.value}</b></div>)}</div></div>;
 }
 
 function ReportView({ config, report, events, loading, mode, onReplay, onReset }: { config: MeetingConfig; report: MeetingReport; events: Intervention[]; loading: boolean; mode: Mode; onReplay: () => void; onReset: () => void }) {
@@ -308,13 +421,18 @@ function ReportView({ config, report, events, loading, mode, onReplay, onReset }
     const count = Math.max(1, config.agenda.length);
     return config.agenda.map((label, index) => ({ start: index / count * 100, end: (index + 1) / count * 100, label, tone: 'focus' }));
   }, [mode, config.agenda]);
-  const exportReport = () => { const blob = new Blob([JSON.stringify({ meeting: config, report, interventions: events }, null, 2)], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `催催会议报告-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); };
-  return <main className="report-shell"><header className="report-header"><button className="brand brand-button" type="button" onClick={onReset}><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议效率助手</small></span></button><nav className="stage-track"><span className="stage done"><i>✓</i> 会前</span><span className="stage-line done" /><span className="stage done"><i>✓</i> 会中</span><span className="stage-line done" /><span className="stage active"><i>3</i> 会后</span></nav><div className="report-actions"><button type="button" onClick={() => window.print()}>打印 / PDF</button><button type="button" onClick={exportReport}>导出纪要</button></div></header>
+  return <main className="report-shell"><header className="report-header"><button className="brand brand-button" type="button" onClick={onReset}><span className="brand-mark">催</span><span><strong>催催</strong><small>会议效率助手</small></span></button><nav className="stage-track"><span className="stage done"><i>✓</i> 会前</span><span className="stage-line done" /><span className="stage done"><i>✓</i> 会中</span><span className="stage-line done" /><span className="stage active"><i>3</i> 会后</span></nav><span className="report-ready">复盘已生成</span></header>
     {loading && <div className="report-loading"><span className="ai-orb"><i /></span><b>催催正在整理本次会议…</b><p>正在梳理摘要、决策和行动项。</p></div>}
-    <section className="report-hero"><div className="score-orbit" style={{ '--score': `${report.overall * 3.6}deg` } as CSSProperties}><div><strong>{report.overall}</strong><span>效率综合分</span></div></div><div className="verdict-block"><p>催催判词</p><h1>{report.verdict}</h1><div className="necessity-verdict"><span>{report.necessity}</span><p>{report.necessityReason}</p></div></div><div className="report-meta"><span><small>实际 / 计划</small><b>{formatClock(report.actualSeconds)} / {formatClock(config.durationSeconds)}</b></span><span><small>会中干预</small><b>{events.length} 次</b></span><span><small>行动项</small><b>{report.actions.length} 项</b></span></div></section>
+    <section className="report-hero"><div className="score-orbit"><div><strong>{report.overall}</strong><span>效率综合分</span></div></div><div className="verdict-block"><p>会议效率判断</p><h1>{report.verdict}</h1><div className="necessity-verdict"><span>{report.necessity}</span><p>{report.necessityReason}</p></div></div><div className="report-meta"><span><small>实际 / 计划</small><b>{formatClock(report.actualSeconds)} / {formatClock(config.durationSeconds)}</b></span><span><small>会中干预</small><b>{events.length} 次</b></span><span><small>行动项</small><b>{report.actions.length} 项</b></span></div></section>
     <section className="report-evidence"><div className="report-section-heading"><div><p>关键节点复盘</p><h2>沿着时间轴回看会议变化</h2></div><span>点击标记查看当时讨论</span></div><div className="replay-timeline"><PulseTimeline elapsed={config.durationSeconds} duration={config.durationSeconds} events={events} compact segments={reportSegments} />{events.map((event) => <button type="button" key={event.id} className={`replay-marker ${event.severity} ${selectedEvent?.id === event.id ? 'active' : ''}`} style={{ left: `${Math.min(100, event.at / config.durationSeconds * 100)}%` }} onClick={() => setSelectedEvent(event)}><i /></button>)}</div>{selectedEvent && <article className={`replay-detail ${selectedEvent.severity}`}><div><time>{formatClock(selectedEvent.at)}</time><b>{selectedEvent.label}</b></div><p>{selectedEvent.observation}</p><span>{selectedEvent.evidence}</span></article>}</section>
-    <section className="report-grid"><article className="report-card score-card"><div className="report-section-heading small"><div><p>四维评分</p><h2>由本次数据计算</h2></div></div>{report.scores.map((score) => <div className="score-row" key={score.key}><div><b>{score.label}</b><span>{score.detail}</span></div><div className="score-bar"><i style={{ width: `${score.value}%` }} /></div><strong>{score.value}</strong></div>)}</article><article className="report-card summary-card"><div className="report-section-heading small"><div><p>会议结果</p><h2>摘要与明确结论</h2></div></div><p className="summary-copy">{report.summary}</p><div className="result-list"><h3>已形成决策</h3>{report.decisions.length ? report.decisions.map((item) => <p key={item}><span>✓</span>{item}</p>) : <p><span>·</span>尚未识别明确决策</p>}</div></article><article className="report-card actions-card"><div className="report-section-heading small"><div><p>下一步</p><h2>行动项</h2></div></div>{report.actions.length ? report.actions.map((action) => <div className="action-item" key={`${action.owner}-${action.task}`}><span>{action.owner.slice(0, 1)}</span><div><b>{action.task}</b><p>{action.owner} · {action.due}</p></div></div>) : <p className="empty-report-copy">本次没有识别到行动项。</p>}</article><article className="report-card participation-card"><div className="report-section-heading small"><div><p>参与度</p><h2>谁在推动讨论</h2></div></div><div className="participation-list">{report.speakerStats.map((stat) => { const person = getSpeaker(stat.id, config.attendees); return <div key={stat.id}><span className="stat-avatar" style={{ background: person.color }}>{person.short}</span><b>{person.name}</b><div><i style={{ width: `${stat.share}%`, background: person.color }} /></div><strong>{stat.share.toFixed(1)}%</strong></div>; })}</div><p className="attendance-advice"><span>参会建议</span>{report.attendanceAdvice}</p></article><article className="report-card suggestions-card"><div className="report-section-heading small"><div><p>下次更好</p><h2>可执行改进</h2></div></div><ol>{report.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol></article></section>
-    <footer className="report-footer"><div><b>这场会的结论已经整理完成</b><span>可以导出报告，也可以返回重新体验</span></div><button type="button" onClick={onReset}>{mode === 'room' ? '创建新会议' : '返回会前'}</button>{mode === 'verified' && <button className="replay-button" type="button" onClick={onReplay}>重新播放录音</button>}</footer>
+    <section className="report-grid">
+      <article className="report-card score-card"><div className="report-section-heading small"><div><p>会议质量雷达</p><h2>每一分都来自本次讨论</h2></div></div><ScoreRadar scores={report.scores} /></article>
+      <article className="report-card summary-card"><div className="report-section-heading small"><div><p>会议结果</p><h2>摘要与明确结论</h2></div></div><p className="summary-copy">{report.summary}</p><div className="result-list"><h3>已形成决策</h3>{report.decisions.length ? report.decisions.map((item) => <p key={item}><span>✓</span>{item}</p>) : <p><span>·</span>尚未识别明确决策</p>}</div></article>
+      <article className="report-card actions-card"><div className="report-section-heading small"><div><p>下一步</p><h2>行动项</h2></div></div>{report.actions.length ? report.actions.map((action) => <div className="action-item" key={`${action.owner}-${action.task}`}><span>{action.owner.slice(0, 1)}</span><div><b>{action.task}</b><p>{action.owner} · {action.due}</p></div></div>) : <p className="empty-report-copy">本次没有识别到行动项。</p>}</article>
+      <article className="report-card participation-card"><div className="report-section-heading small"><div><p>参与度</p><h2>谁在推动讨论</h2></div></div><div className="participation-list">{report.speakerStats.map((stat) => { const person = getSpeaker(stat.id, config.attendees); return <div key={stat.id}><span className="stat-avatar" style={{ background: person.color }}>{person.short}</span><b>{person.name}</b><div><i style={{ width: `${stat.share}%`, background: person.color }} /></div><strong>{stat.share.toFixed(1)}%</strong></div>; })}</div><p className="attendance-advice"><span>参会建议</span>{report.attendanceAdvice}</p></article>
+      <article className="report-card suggestions-card"><div className="report-section-heading small"><div><p>下次更好</p><h2>可执行改进</h2></div></div><ol>{report.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol></article>
+    </section>
+    <footer className="report-footer"><div><b>这场会的结论已经整理完成</b><span>可回看关键节点，或重新体验</span></div><button type="button" onClick={onReset}>{mode === 'room' ? '创建新会议' : '返回会前'}</button>{mode === 'verified' && <button className="replay-button" type="button" onClick={onReplay}>重新播放录音</button>}</footer>
   </main>;
 }
 
@@ -370,6 +488,8 @@ function HostMeetingApp() {
   const roomSeqRef = useRef(0);
   const roomClientEventIdRef = useRef('');
   const roomDraftStartedAtRef = useRef<number | null>(null);
+  const roomDraftLastChangedAtRef = useRef<number | null>(null);
+  const roomDraftLastTextRef = useRef('');
   const roomPendingPartialRef = useRef<RoomUpload | null>(null);
   const roomPartialTimerRef = useRef<number | null>(null);
   const roomLastPartialAtRef = useRef(0);
@@ -377,6 +497,7 @@ function HostMeetingApp() {
   const roomCommittedCharsRef = useRef(0);
   const lastRoomAnalyzedAtRef = useRef(0);
   const roomReportStartedRef = useRef(false);
+  const hostAutoMicAttemptedRef = useRef('');
   const errorSourceRef = useRef<ErrorSource | null>(null);
   const analysisRetryTimerRef = useRef<number | null>(null);
 
@@ -415,8 +536,8 @@ function HostMeetingApp() {
 
   useEffect(() => {
     void fetch('/api/health', { cache: 'no-store' }).then((response) => response.json() as Promise<{ services: ServiceHealth }>).then((data) => setHealth(data.services)).catch(() => setHealth({ openrouter: false, iflytek: false, speech: true }));
-    void fetch('/demo/verified-run.json', { cache: 'no-store' }).then(async (response) => { if (!response.ok) throw new Error('演示会议尚未准备好'); return response.json() as Promise<VerifiedRun>; }).then((data) => { setVerifiedRun(data); const meeting = data.meeting; setConfig({ title: meeting.title, durationSeconds: meeting.durationSeconds, meetingType: meeting.meetingType, agenda: meeting.agenda, attendees: meeting.attendees, prioritySpeakerId: meeting.prioritySpeakerId || 'boss', contextUrl: meeting.contextUrl || '' }); }).catch((reason) => setVerifiedError(reason instanceof Error ? reason.message : '无法读取演示会议'));
-    const timer = window.setTimeout(() => { try { const saved = localStorage.getItem('cuicui-meeting-config'); if (saved) setConfig((current) => ({ ...current, ...JSON.parse(saved) })); } catch { /* preference optional */ } }, 0);
+    void fetch('/demo/verified-run.json', { cache: 'no-store' }).then(async (response) => { if (!response.ok) throw new Error('演示会议尚未准备好'); return response.json() as Promise<VerifiedRun>; }).then(setVerifiedRun).catch((reason) => setVerifiedError(reason instanceof Error ? reason.message : '无法读取演示会议'));
+    const timer = window.setTimeout(() => { try { const saved = localStorage.getItem('cuicui-experience-config-v2'); if (saved) setConfig((current) => ({ ...current, ...JSON.parse(saved) })); } catch { /* preference optional */ } }, 0);
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
@@ -586,6 +707,10 @@ function HostMeetingApp() {
     if (!clean) return;
     if (!roomClientEventIdRef.current) roomClientEventIdRef.current = crypto.randomUUID();
     if (roomDraftStartedAtRef.current === null) roomDraftStartedAtRef.current = roomElapsedNow();
+    if (clean !== roomDraftLastTextRef.current) {
+      roomDraftLastTextRef.current = clean;
+      roomDraftLastChangedAtRef.current = roomElapsedNow();
+    }
     roomPendingPartialRef.current = {
       clientEventId: roomClientEventIdRef.current,
       text: clean,
@@ -610,12 +735,14 @@ function HostMeetingApp() {
         text: clean,
         final: true,
         startedAt: roomDraftStartedAtRef.current ?? roomElapsedNow(),
-        endedAt: roomElapsedNow(),
+        endedAt: roomDraftLastChangedAtRef.current ?? roomElapsedNow(),
       };
       void enqueueRoomUpload(upload).catch(() => undefined);
     }
     roomClientEventIdRef.current = '';
     roomDraftStartedAtRef.current = null;
+    roomDraftLastChangedAtRef.current = null;
+    roomDraftLastTextRef.current = '';
     setLiveDraft('');
   }, [enqueueRoomUpload, roomElapsedNow]);
 
@@ -646,6 +773,10 @@ function HostMeetingApp() {
         onFinal: (text) => {
           roomRecognitionRef.current = text;
           const tail = text.length >= roomCommittedCharsRef.current ? text.slice(roomCommittedCharsRef.current).trim() : text.trim();
+          if (tail && tail !== roomDraftLastTextRef.current) {
+            if (!roomDraftLastTextRef.current) roomDraftLastChangedAtRef.current = roomElapsedNow();
+            roomDraftLastTextRef.current = tail;
+          }
           roomCommittedCharsRef.current = text.length;
           finalizeRoomDraft(tail);
         },
@@ -677,7 +808,7 @@ function HostMeetingApp() {
     } finally {
       transcriberStartingRef.current = false;
     }
-  }, [clearScopedError, finalizeRoomDraft, scheduleRoomPartial, showScopedError]);
+  }, [clearScopedError, finalizeRoomDraft, roomElapsedNow, scheduleRoomPartial, showScopedError]);
 
   const stopRoomHostMic = useCallback(async () => {
     const current = transcriberRef.current;
@@ -708,6 +839,18 @@ function HostMeetingApp() {
     if (hostMicActive) void stopRoomHostMic().catch((reason) => showScopedError('room-upload', reason instanceof Error ? reason.message : '无法关闭主持人麦克风'));
     else void startRoomHostMic();
   }, [hostMicActive, showScopedError, startRoomHostMic, stopRoomHostMic]);
+
+  useEffect(() => {
+    if (screen !== 'meeting' || mode !== 'room' || roomSnapshot?.status !== 'live' || !roomSnapshot.startedAt || !roomSession) return;
+    const attemptKey = `${roomSession.code}:${roomSnapshot.startedAt}`;
+    if (hostAutoMicAttemptedRef.current === attemptKey) return;
+    const timer = window.setTimeout(() => {
+      if (hostAutoMicAttemptedRef.current === attemptKey) return;
+      hostAutoMicAttemptedRef.current = attemptKey;
+      void startRoomHostMic();
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [mode, roomSession, roomSnapshot?.startedAt, roomSnapshot?.status, screen, startRoomHostMic]);
 
   const createRoom = useCallback(async (draft: RoomDraft) => {
     setRoomLoading(true);
@@ -810,7 +953,7 @@ function HostMeetingApp() {
     if (targetMode === 'room') return;
     const startingConfig = targetMode === 'verified' && verifiedRun ? verifiedRun.meeting : config;
     const startingSpeakerId = startingConfig.attendees[0]?.id || 'host';
-    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId);
+    setMode(targetMode); setScreen('meeting'); setElapsed(0); setRunning(targetMode !== 'verified'); setSoundOn(targetMode === 'verified'); clearAllErrors(); setActionState({}); setParkingItems([]); setLiveLines([]); setLiveDraft(''); setLiveEvents([]); setSelectedSpeakerId(startingSpeakerId);
     selectedSpeakerRef.current = startingSpeakerId; lastSpokenRef.current = ''; lastAnalyzedRef.current = ''; fullRecognitionRef.current = ''; committedCharsRef.current = 0;
     if (targetMode === 'live') window.setTimeout(() => void startTranscriber(), 120);
     if (targetMode === 'verified' && audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.playbackRate = speed; audioRef.current.muted = !soundOn; void audioRef.current.play().catch(() => { setRunning(false); showScopedError('general', '浏览器阻止了自动播放，请点击“继续”开始录音。'); }); }
@@ -844,6 +987,7 @@ function HostMeetingApp() {
       setRoomDraftLines(roomTranscript(snapshot, false));
       setMode('room');
       setScreen('meeting');
+      setSoundOn(false);
       setElapsed(snapshot.startedAt ? roomElapsedNow() : 0);
       setRunning(true);
       setRoomClosing(false);
@@ -884,9 +1028,9 @@ function HostMeetingApp() {
   useEffect(() => {
     if (screen !== 'meeting' || !soundOn || !visibleEvents.length) return;
     const latest = visibleEvents.at(-1)!;
-    if (!latest.voice || lastSpokenRef.current === latest.id || actionState[latest.id] === 'ignored') return;
+    if (latest.level === 'L0' || lastSpokenRef.current === latest.id || actionState[latest.id] === 'ignored') return;
     lastSpokenRef.current = latest.id;
-    if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(latest.voice); utterance.lang = 'zh-CN'; window.speechSynthesis.speak(utterance); }
+    playInterventionTone(latest.level);
   }, [screen, soundOn, visibleEvents, actionState]);
 
   useEffect(() => {
@@ -902,10 +1046,10 @@ function HostMeetingApp() {
       const controller = new AbortController();
       const requestTimer = window.setTimeout(() => controller.abort(), 10_000);
       try {
-        const transcript = [...analysisLines.map((line) => ({ speaker: getSpeaker(line.speakerId, displayConfig.attendees).name, text: line.text, at: line.at })), ...(mode === 'live' && liveAnalysisDraft ? [{ speaker: getSpeaker(selectedSpeakerId, displayConfig.attendees).name, text: liveAnalysisDraft, at: elapsedRef.current }] : [])];
+        const transcript = [...analysisLines.map((line) => ({ id: line.id, speakerId: line.speakerId, speaker: getSpeaker(line.speakerId, displayConfig.attendees).name, text: line.text, at: line.at, end: line.end, workRelated: line.workRelated, interrupted: line.interrupted })), ...(mode === 'live' && liveAnalysisDraft ? [{ id: `draft-${selectedSpeakerId}`, speakerId: selectedSpeakerId, speaker: getSpeaker(selectedSpeakerId, displayConfig.attendees).name, text: liveAnalysisDraft, at: elapsedRef.current, end: elapsedRef.current, workRelated: true }] : [])];
         const accessToken = await getDemoSession();
-        const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: displayConfig.title, type: displayConfig.meetingType, durationSeconds: displayConfig.durationSeconds, agenda: displayConfig.agenda }, elapsedSeconds: elapsedRef.current, previousEventTypes: liveEvents.map((event) => event.type), transcript }), signal: controller.signal });
-        const data = await response.json() as { events?: Array<Omit<Intervention, 'id' | 'at'>>; error?: string };
+        const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: displayConfig.title, type: displayConfig.meetingType, durationSeconds: displayConfig.durationSeconds, agenda: displayConfig.agenda }, elapsedSeconds: elapsedRef.current, previousEvents: liveEvents.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })), transcript }), signal: controller.signal });
+        const data = await response.json() as { events?: Array<Omit<Intervention, 'id'>>; error?: string };
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         lastAnalyzedRef.current = snapshotKey;
         if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
@@ -914,13 +1058,11 @@ function HostMeetingApp() {
         if (Array.isArray(data.events) && data.events.length) {
           const accepted: Intervention[] = [];
           for (const [index, event] of data.events.entries()) {
-            const duplicate = [...liveEvents, ...accepted].some((item) => item.type === event.type && elapsedRef.current - item.at < 20);
-            if (duplicate) continue;
             accepted.push({
               ...event,
               id: `ai-${Date.now()}-${index}-${crypto.randomUUID()}`,
-              at: elapsedRef.current,
-              actions: event.severity === 'critical' ? ['adopt', 'park'] : ['adopt', 'ignore'],
+              at: Number.isFinite(Number(event.at)) ? Number(event.at) : elapsedRef.current,
+              actions: event.level === 'L0' ? [] : event.level === 'L2' ? ['adopt', 'park'] : ['adopt', 'ignore'],
             } as Intervention);
           }
           if (accepted.length) {
@@ -931,7 +1073,7 @@ function HostMeetingApp() {
           }
         }
       } catch {
-        showScopedError('analysis', 'AI 分析暂时不可用，转写仍在保存，正在自动重试。');
+        showScopedError('analysis', '会中分析暂时不可用，转写仍在保存，正在自动重试。');
         if (analysisRetryTimerRef.current !== null) window.clearTimeout(analysisRetryTimerRef.current);
         analysisRetryTimerRef.current = window.setTimeout(() => setAnalysisRetryTick((value) => value + 1), 3500);
       } finally {
@@ -983,7 +1125,7 @@ function HostMeetingApp() {
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       setReport({ ...EMPTY_REPORT, ...data, speakerStats: buildStats(lines, reportConfig.attendees), actualSeconds: Math.round(actualSeconds) });
     } catch {
-      setReport({ ...EMPTY_REPORT, overall: 68, verdict: '会议内容已保存，AI 报告暂时不可用。', actualSeconds: Math.round(actualSeconds), speakerStats: buildStats(lines, reportConfig.attendees), summary: '多人会议转写已完整保留，可导出后继续整理。' });
+      setReport({ ...EMPTY_REPORT, verdict: '报告生成失败，本次不提供推测分数。', actualSeconds: Math.round(actualSeconds), speakerStats: buildStats(lines, reportConfig.attendees), summary: '多人会议转写已保留，请稍后重新生成复盘。' });
     } finally {
       window.clearTimeout(requestTimer);
       setReportLoading(false);
@@ -1055,7 +1197,7 @@ function HostMeetingApp() {
       const data = await response.json() as Partial<MeetingReport> & { error?: string };
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       setReport({ ...EMPTY_REPORT, ...data, speakerStats: buildStats(lines, displayConfig.attendees), actualSeconds: Math.round(elapsedRef.current) });
-    } catch { setReport({ ...EMPTY_REPORT, overall: 68, verdict: '会议内容已保存，AI 报告暂时不可用。', actualSeconds: Math.round(elapsedRef.current), speakerStats: buildStats(lines, displayConfig.attendees), summary: '实时转写已保留，可导出后继续整理。' }); }
+    } catch { setReport({ ...EMPTY_REPORT, verdict: '报告生成失败，本次不提供推测分数。', actualSeconds: Math.round(elapsedRef.current), speakerStats: buildStats(lines, displayConfig.attendees), summary: '实时转写已保留，请稍后重新生成复盘。' }); }
     finally { setReportLoading(false); }
   }, [screen, mode, verifiedRun, stopRoomHostMic, displayConfig, liveEvents, buildStats, acceptRoomSnapshot, clearScopedError, completeRoomReport, roomServerNow, showScopedError]);
 
@@ -1077,6 +1219,9 @@ function HostMeetingApp() {
     roomUploadFailureRef.current = null;
     roomLatestPartialSeqRef.current.clear();
     roomFinalQueuedRef.current.clear();
+    roomDraftLastChangedAtRef.current = null;
+    roomDraftLastTextRef.current = '';
+    hostAutoMicAttemptedRef.current = '';
     roomEndInFlightRef.current = false;
     roomReportStartedRef.current = false;
     roomSeqRef.current = 0;
@@ -1149,7 +1294,7 @@ function HostMeetingApp() {
   const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audioRef.current) audioRef.current.playbackRate = next; };
   const changeSound = () => { setSoundOn((value) => { if (audioRef.current) audioRef.current.muted = value; if (value) window.speechSynthesis?.cancel(); return !value; }); };
   const skipToNext = () => { const next = (verifiedRun?.events || []).find((event) => event.at > elapsed + .5); if (audioRef.current) audioRef.current.currentTime = next ? Math.max(0, next.at - .5) : displayConfig.durationSeconds - 1; };
-  const saveConfig = (value: MeetingConfig) => { setConfig(value); setShowConfig(false); try { localStorage.setItem('cuicui-meeting-config', JSON.stringify(value)); } catch { /* optional */ } };
+  const saveConfig = (value: MeetingConfig) => { setConfig(value); setShowConfig(false); try { localStorage.setItem('cuicui-experience-config-v2', JSON.stringify(value)); } catch { /* optional */ } };
 
   useEffect(() => {
     const audio = audioRef.current; if (!audio) return;

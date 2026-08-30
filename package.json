@@ -14,6 +14,7 @@
     "audio:generate": "node scripts/generate-meeting-audio.mjs",
     "audio:verify": "node scripts/verify-meeting-pipeline.mjs",
     "room:verify": "node scripts/verify-room-api.mjs",
+    "score:verify": "node --experimental-strip-types scripts/verify-report-scoring.ts",
     "smoke:public": "node scripts/smoke-public-api.mjs"
   },
   "dependencies": {

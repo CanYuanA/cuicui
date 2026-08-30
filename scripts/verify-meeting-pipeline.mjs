@@ -211,9 +211,8 @@ async function main() {
       const result = await transcribePcm(pcm, env, utterance.id);
       utteranceSessions.push(result);
       const speaker = speakerFor(utterance.speakerId);
-      const nextStart = fixture.utterances[index + 1]?.start || fixture.meeting.durationSeconds;
       const spokenSeconds = Number(manifest.utterances[index]?.audio?.durationSeconds) || Math.max(1, utterance.text.length / 4.5);
-      const spokenEnd = Math.min(nextStart, fixture.meeting.durationSeconds, utterance.start + spokenSeconds);
+      const spokenEnd = Math.min(fixture.meeting.durationSeconds, utterance.start + spokenSeconds);
       transcript.push({ id: utterance.id, at: utterance.start, end: spokenEnd, speakerId: utterance.speakerId, speaker: speaker.name, text: result.text, expectedText: utterance.text, topic: utterance.topic, workRelated: utterance.workRelated, interrupted: Boolean(utterance.interrupted), asrSource: 'iflytek-iat' });
       writeFileSync(progressPath, `${JSON.stringify({ masterSessions, utteranceSessions, transcript }, null, 2)}\n`);
     }
@@ -223,7 +222,7 @@ async function main() {
   let analysisRuns = [];
   try {
     const previous = JSON.parse(readFileSync(outputPath, 'utf8'));
-    if (previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type)) {
+    if (previous.analysisRulesVersion === 'intervention-ladder-v2' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
       events = previous.events; analysisRuns = previous.analysisRuns;
       console.log('reusing verified OpenRouter analysis runs; only report will rerun');
     }
@@ -234,11 +233,18 @@ async function main() {
       const analysis = await callApi('/api/analyze', {
         meeting: { title: fixture.meeting.title, type: fixture.meeting.meetingType, durationSeconds: fixture.meeting.durationSeconds, agenda: fixture.meeting.agenda },
         elapsedSeconds: snapshot.at(-1).end,
-        previousEventTypes: events.map((event) => event.type),
-        transcript: snapshot.map(({ speaker, text, at }) => ({ speaker, text, at })),
+        previousEvents: events.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })),
+        transcript: snapshot.map(({ id, speakerId, speaker, text, at, end, workRelated, interrupted }) => ({ id, speakerId, speaker, text, at, end, workRelated, interrupted })),
       });
       analysisRuns.push({ at: snapshot.at(-1).end, source: analysis.source, model: analysis.model || null, usage: analysis.usage || null, events: analysis.events || [] });
-      for (const event of analysis.events || []) if (!events.some((item) => item.type === event.type)) events.push({ ...event, id: `verified-${event.type}`, at: snapshot.at(-1).end, actions: event.severity === 'critical' ? ['adopt', 'park'] : ['adopt', 'ignore'] });
+      for (const [eventIndex, event] of (analysis.events || []).entries()) {
+        events.push({
+          ...event,
+          id: `verified-${event.type}-${analysisRuns.length}-${eventIndex}`,
+          at: Number.isFinite(Number(event.at)) ? Number(event.at) : snapshot.at(-1).end,
+          actions: event.level === 'L0' ? [] : event.level === 'L2' ? ['adopt', 'park'] : ['adopt', 'ignore'],
+        });
+      }
     }
   }
   const report = await callApi('/api/report', {
@@ -258,7 +264,9 @@ async function main() {
   const averageSegmentSimilarity = segmentSimilarities.reduce((sum, value) => sum + value, 0) / Math.max(1, segmentSimilarities.length);
   const masterText = masterSessions.map((session) => session.text).join('');
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    analysisRulesVersion: 'intervention-ladder-v2',
+    scoringVersion: 'meeting-radar-v2',
     verifiedAt: new Date().toISOString(),
     provenance: {
       kind: 'real-pipeline-run',
@@ -291,6 +299,9 @@ async function main() {
       reportWasInvoked: Boolean(report.summary),
       reportUsedOpenRouter: report.source === 'openrouter',
       reportShapeValid: typeof report.verdict === 'string' && typeof report.necessityReason === 'string' && Array.isArray(report.decisions) && Array.isArray(report.actions) && Array.isArray(report.suggestions),
+      interventionLadderValid: events.some((event) => event.level === 'L0') && events.some((event) => event.level === 'L1') && events.some((event) => event.level === 'L2'),
+      interruptEscalationValid: events.filter((event) => event.type === 'interrupt' && event.incidentKey === 'interrupt:boss').slice(0, 3).map((event) => event.level).join(',') === 'L0,L0,L2',
+      scoreShapeValid: Array.isArray(report.scores) && report.scores.length === 5 && report.scores.every((score) => Number.isFinite(score.value) && score.value >= 0 && score.value <= 100),
     },
     quality: { averageSegmentSimilarity, segmentSimilarities },
   };

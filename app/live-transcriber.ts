@@ -32,6 +32,7 @@ type AuthPayload = { url: string; appId: string; expiresAt?: number };
 const FRAME_SAMPLES = 640;
 const FRAME_INTERVAL_MS = 40;
 const SESSION_ROTATION_MS = 50_000;
+const VAD_EOS_MS = 1500;
 const IFLYTEK_HOST = 'iat-api.xfyun.cn';
 const AUDIO_FORMAT = 'audio/L16;rate=16000';
 
@@ -157,6 +158,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
   private sessionEpoch = 0;
   private reconnectFailures = 0;
   private appId = '';
+  private cachedAuth: AuthPayload | null = null;
 
   constructor(options: TranscriberOptions) {
     this.options = options;
@@ -167,6 +169,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
     this.stopping = false;
     this.pending = [];
     this.pendingOffset = 0;
+    this.cachedAuth = null;
     this.resampler.reset();
     this.options.onStatus('requesting');
     try {
@@ -226,12 +229,16 @@ export class XfyunTranscriber implements MeetingTranscriber {
     if (endpoint.protocol !== 'wss:' || endpoint.hostname !== IFLYTEK_HOST || endpoint.pathname !== '/v2/iat') {
       throw new Error('讯飞鉴权服务返回了非预期地址。');
     }
-    return { url: endpoint.toString(), appId: payload.appId, expiresAt: payload.expiresAt } satisfies AuthPayload;
+    const auth = { url: endpoint.toString(), appId: payload.appId, expiresAt: payload.expiresAt } satisfies AuthPayload;
+    this.cachedAuth = auth;
+    return auth;
   }
 
   private async openSession(auth?: AuthPayload) {
     const epoch = ++this.sessionEpoch;
-    const credentials = auth || await this.fetchAuth();
+    const reusableAuth = this.cachedAuth && (!this.cachedAuth.expiresAt || this.cachedAuth.expiresAt > Date.now() + 5000) ? this.cachedAuth : null;
+    const credentials = auth || reusableAuth || await this.fetchAuth();
+    this.cachedAuth = credentials;
     if (this.stopping || epoch !== this.sessionEpoch) throw new Error('听写已停止');
     if (credentials.expiresAt && credentials.expiresAt <= Date.now() + 5000) throw new Error('讯飞鉴权地址已过期，请重新开启麦克风。');
     this.appId = credentials.appId;
@@ -283,6 +290,14 @@ export class XfyunTranscriber implements MeetingTranscriber {
           return;
         }
         if (this.stopping || expectedClose) return;
+        if (event.code === 1000 && event.reason === 'session complete') {
+          this.captureEnabled = false;
+          this.pending = [];
+          this.pendingOffset = 0;
+          this.resampler.reset();
+          void this.openSession().catch((error) => this.scheduleReconnect(error instanceof Error ? error.message : '句末续接失败'));
+          return;
+        }
         this.scheduleReconnect(`连接关闭 ${event.code}${event.reason ? ` · ${event.reason}` : ''}`);
       };
     });
@@ -362,7 +377,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
     };
     if (this.firstFrame) {
       payload.common = { app_id: this.appId };
-      payload.business = { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: 10000 };
+      payload.business = { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: VAD_EOS_MS };
     }
     socket.send(JSON.stringify(payload));
     this.firstFrame = false;
@@ -439,7 +454,7 @@ export class XfyunTranscriber implements MeetingTranscriber {
         };
         if (opening) {
           payload.common = { app_id: this.appId };
-          payload.business = { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: 10000 };
+          payload.business = { language: 'zh_cn', domain: 'iat', accent: 'mandarin', dwa: 'wpgs', vad_eos: VAD_EOS_MS };
           this.firstFrame = false;
         }
         socket.send(JSON.stringify(payload));

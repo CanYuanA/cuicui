@@ -11,7 +11,7 @@ import type {
   Utterance,
   UtteranceSource,
 } from '../../room-types';
-import type { EventType, Intervention, Severity } from '../../demo-data';
+import type { EventType, Intervention, InterventionLevel, Severity } from '../../demo-data';
 import { AccessError, clientIp, enforceRate } from '../../server/demo-access';
 
 export const runtime = 'nodejs';
@@ -20,7 +20,7 @@ const MAX_BODY_BYTES = 16_384;
 const ROOM_CAPACITY = 12;
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 const ENDED_ROOM_TTL_MS = 60 * 60 * 1000;
-const CLOSE_DRAIN_MS = 12_000;
+const CLOSE_DRAIN_MS = 6_000;
 const ONLINE_WINDOW_MS = 15_000;
 const MAX_UNIQUE_UTTERANCES = 2_400;
 const MAX_ROOM_INTERVENTIONS = 120;
@@ -212,8 +212,9 @@ function cleanMeeting(value: unknown): RoomMeeting {
   };
 }
 
-const interventionTypes = new Set<EventType>(['smalltalk', 'off_topic', 'interrupt', 'repeat', 'disagreement', 'time', 'decision']);
+const interventionTypes = new Set<EventType>(['agenda_progress', 'topic_shift', 'action_item', 'smalltalk', 'off_topic', 'interrupt', 'repeat', 'disagreement', 'time', 'decision']);
 const interventionSeverities = new Set<Severity>(['info', 'warning', 'critical', 'success']);
+const interventionLevels = new Set<InterventionLevel>(['L0', 'L1', 'L2']);
 
 function cleanIntervention(value: unknown, serverElapsed: number): Intervention {
   const record = value && typeof value === 'object' && !Array.isArray(value)
@@ -222,9 +223,11 @@ function cleanIntervention(value: unknown, serverElapsed: number): Intervention 
   const id = cleanText(record.id, 80);
   const type = cleanText(record.type, 24) as EventType;
   const severity = cleanText(record.severity, 16) as Severity;
+  const level = cleanText(record.level, 4) as InterventionLevel;
   if (!/^[A-Za-z0-9._:-]{1,80}$/.test(id)) throw new AccessError(400, '提醒事件标识无效');
   if (!interventionTypes.has(type)) throw new AccessError(400, '提醒类型无效');
   if (!interventionSeverities.has(severity)) throw new AccessError(400, '提醒级别无效');
+  if (!interventionLevels.has(level)) throw new AccessError(400, '提醒展示层级无效');
 
   const label = cleanText(record.label, 60);
   const observation = cleanText(record.observation, 360);
@@ -235,6 +238,11 @@ function cleanIntervention(value: unknown, serverElapsed: number): Intervention 
 
   const rawAt = Number(record.at);
   const rawConfidence = Number(record.confidence);
+  const rawPriority = Number(record.priority);
+  const priority = ([0, 100, 200, 300].includes(rawPriority) ? rawPriority : level === 'L2' ? 300 : level === 'L1' ? 100 : 0) as 0 | 100 | 200 | 300;
+  const occurrence = Math.max(1, Math.min(99, Math.round(Number(record.occurrence) || 1)));
+  const incidentKey = cleanText(record.incidentKey, 100) || type;
+  const displayMs = (level === 'L2' ? 10000 : level === 'L1' ? 7000 : 0) as 0 | 7000 | 10000;
   const actions = (Array.isArray(record.actions) ? record.actions : [])
     .filter((action): action is 'adopt' | 'park' | 'ignore' => action === 'adopt' || action === 'park' || action === 'ignore')
     .slice(0, 3);
@@ -244,6 +252,11 @@ function cleanIntervention(value: unknown, serverElapsed: number): Intervention 
     at: Math.max(0, Math.min(serverElapsed + 2, Number.isFinite(rawAt) ? rawAt : serverElapsed)),
     type,
     severity,
+    level,
+    priority,
+    occurrence,
+    incidentKey,
+    displayMs,
     label,
     observation,
     impact,
@@ -251,6 +264,8 @@ function cleanIntervention(value: unknown, serverElapsed: number): Intervention 
     evidence,
     ...(Number.isFinite(rawConfidence) ? { confidence: Math.max(0, Math.min(1, rawConfidence)) } : {}),
     ...(voice ? { voice } : {}),
+    ...(cleanText(record.replacesId, 80) ? { replacesId: cleanText(record.replacesId, 80) } : {}),
+    ...(cleanText(record.escalationReason, 160) ? { escalationReason: cleanText(record.escalationReason, 160) } : {}),
     ...(actions.length ? { actions } : {}),
   };
 }

@@ -1,5 +1,6 @@
 export type Severity = 'info' | 'warning' | 'critical' | 'success';
-export type EventType = 'smalltalk' | 'off_topic' | 'interrupt' | 'repeat' | 'disagreement' | 'time' | 'decision';
+export type InterventionLevel = 'L0' | 'L1' | 'L2';
+export type EventType = 'agenda_progress' | 'topic_shift' | 'action_item' | 'smalltalk' | 'off_topic' | 'interrupt' | 'repeat' | 'disagreement' | 'time' | 'decision';
 
 export type Speaker = {
   id: string;
@@ -35,6 +36,13 @@ export type Intervention = {
   suggestion: string;
   evidence: string;
   confidence?: number;
+  level: InterventionLevel;
+  priority: 0 | 100 | 200 | 300;
+  occurrence?: number;
+  incidentKey?: string;
+  displayMs?: 0 | 7000 | 10000;
+  replacesId?: string;
+  escalationReason?: string;
   voice?: string;
   actions?: Array<'adopt' | 'park' | 'ignore'>;
 };
@@ -85,18 +93,18 @@ export type VerifiedRun = {
 };
 
 export const SPEAKERS: Speaker[] = [
-  { id: 'host', name: '林主持', short: '林', role: '主持人 · 产品负责人', color: '#59e1ff' },
-  { id: 'boss', name: '周总', short: '周', role: '业务拍板人', color: '#ffc857', isPriority: true },
-  { id: 'engineer', name: '王工', short: '王', role: '后端负责人', color: '#a8f05a' },
-  { id: 'designer', name: '郭产品', short: '郭', role: '产品体验负责人', color: '#a994ff' },
-  { id: 'observer', name: '黄运营', short: '黄', role: '活动运营', color: '#ff8297' },
+  { id: 'host', name: '林主持', short: '林', role: '主持人 · 产品负责人', color: '#1a73e8' },
+  { id: 'boss', name: '周总', short: '周', role: '业务拍板人', color: '#f9ab00', isPriority: true },
+  { id: 'engineer', name: '王工', short: '王', role: '后端负责人', color: '#188038' },
+  { id: 'designer', name: '郭产品', short: '郭', role: '产品体验负责人', color: '#7e57c2' },
+  { id: 'observer', name: '黄运营', short: '黄', role: '活动运营', color: '#d93025' },
 ];
 
 export const DEFAULT_CONFIG: MeetingConfig = {
-  title: '催催助手现场演示方案会',
-  durationSeconds: 100,
+  title: '新用户首周留存改进会',
+  durationSeconds: 900,
   meetingType: '方案决策会',
-  agenda: ['确定评委能看懂的单人演示主线', '收敛首版范围并明确验收负责人'],
+  agenda: ['梳理注册后前三天的主要流失节点', '确定本周实验方案、指标与负责人'],
   attendees: SPEAKERS,
   prioritySpeakerId: 'boss',
   contextUrl: '',
@@ -109,10 +117,11 @@ export const EMPTY_REPORT: MeetingReport = {
   necessityReason: '完成转写与分析后生成。',
   actualSeconds: 0,
   scores: [
-    { key: 'punctuality', label: '准时率', value: 0, detail: '等待会议结束' },
-    { key: 'focus', label: '话题集中度', value: 0, detail: '等待会议结束' },
-    { key: 'balance', label: '发言均衡度', value: 0, detail: '等待会议结束' },
-    { key: 'coverage', label: '议题覆盖率', value: 0, detail: '等待会议结束' },
+    { key: 'time', label: '时间管理', value: 0, detail: '等待会议结束' },
+    { key: 'focus', label: '议题聚焦', value: 0, detail: '等待会议结束' },
+    { key: 'participation', label: '参与质量', value: 0, detail: '等待会议结束' },
+    { key: 'agenda', label: '议题推进', value: 0, detail: '等待会议结束' },
+    { key: 'outcome', label: '决策闭环', value: 0, detail: '等待会议结束' },
   ],
   speakerStats: SPEAKERS.map((speaker) => ({ id: speaker.id, seconds: 0, share: 0, turns: 0, interruptions: 0 })),
   summary: '尚未生成报告。',
@@ -123,11 +132,12 @@ export const EMPTY_REPORT: MeetingReport = {
 };
 
 export const TOPIC_SEGMENTS = [
-  { start: 0, end: 16, label: '目标对齐', tone: 'focus' },
-  { start: 16, end: 29, label: '短暂跑题', tone: 'warning' },
-  { start: 29, end: 52, label: '演示主线', tone: 'focus' },
-  { start: 52, end: 76, label: '范围分歧', tone: 'critical' },
-  { start: 76, end: 100, label: '收敛行动', tone: 'success' },
+  { start: 0, end: 27, label: '方案收集', tone: 'focus' },
+  { start: 27, end: 37, label: '短暂闲聊', tone: 'warning' },
+  { start: 37, end: 42, label: '回到上线条件', tone: 'success' },
+  { start: 42, end: 64, label: '打断与时间风险', tone: 'critical' },
+  { start: 64, end: 82, label: '风险收敛', tone: 'focus' },
+  { start: 82, end: 100, label: '决策与行动', tone: 'success' },
 ] as const;
 
 export function getSpeaker(id: string, speakers: Speaker[] = SPEAKERS) {

@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { XfyunTranscriber, type MeetingTranscriber, type TranscriberOptions, type TranscriberStatus } from './live-transcriber';
 import { getDemoSession } from './demo-session-client';
 import type { RoomSnapshot, UtteranceSource } from './room-types';
+import type { Intervention } from './demo-data';
 
 type ParticipantSession = { token: string; participantId: string; name: string; role: string; nextSeq?: number };
-type PendingSpeechEvent = { clientEventId: string; startedAt: number; lastQueuedText: string };
+type PendingSpeechEvent = { clientEventId: string; startedAt: number; lastQueuedText: string; lastChangedText: string; lastChangedAt: number };
 type UploadItem = {
   clientEventId: string;
   isFinal: boolean;
@@ -35,6 +36,29 @@ function delay(milliseconds: number) {
 function formatElapsed(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
+function ParticipantInterventionToast({ events }: { events: Intervention[] }) {
+  const seenRef = useRef<Set<string> | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const [active, setActive] = useState<Intervention | null>(null);
+  if (seenRef.current === null) seenRef.current = new Set(events.map((event) => event.id));
+  useEffect(() => {
+    const seen = seenRef.current!;
+    const incoming = events.filter((event) => event.level !== 'L0' && !seen.has(event.id));
+    for (const event of events) seen.add(event.id);
+    const latest = incoming.at(-1);
+    if (!latest) return;
+    setActive(latest);
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      setActive((current) => current?.id === latest.id ? null : current);
+      timerRef.current = null;
+    }, latest.displayMs || (latest.level === 'L2' ? 10000 : 7000));
+  }, [events]);
+  useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
+  if (!active) return null;
+  return <aside className={`participant-intervention-toast ${active.level.toLowerCase()}`} role="status" aria-live="assertive"><div><span>{active.level} 提醒</span><time>{formatElapsed(active.at)}</time></div><b>{active.label}</b><p>{active.suggestion}</p><button type="button" onClick={() => setActive(null)}>知道了</button><i style={{ animationDuration: `${active.displayMs || (active.level === 'L2' ? 10000 : 7000)}ms` }} /></aside>;
 }
 
 function isRetryable(error: unknown) {
@@ -228,13 +252,13 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
   }, [startUploadPump]);
 
   const enqueueUtterance = useCallback((input: {
-    text: string; clientEventId: string; startedAt: number; source: UtteranceSource; isFinal: boolean;
+    text: string; clientEventId: string; startedAt: number; endedAt?: number; source: UtteranceSource; isFinal: boolean;
   }) => {
     const text = input.text.trim();
     if (!text || !participantTokenRef.current) return Promise.resolve();
     const item = makeUploadItem(input.clientEventId, input.isFinal, {
       action: 'utterance', code: normalizedCode, text, clientEventId: input.clientEventId,
-      seq: nextSequence(), startedAt: Math.max(0, input.startedAt), endedAt: relativeNow(),
+      seq: nextSequence(), startedAt: Math.max(0, input.startedAt), endedAt: Math.max(input.startedAt, input.endedAt ?? relativeNow()),
       source: input.source, isFinal: input.isFinal,
     });
     if (input.isFinal) {
@@ -256,14 +280,20 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
 
   const ensureSpeechEvent = useCallback(() => {
     if (!currentSpeechEventRef.current) {
-      currentSpeechEventRef.current = { clientEventId: newEventId(participantIdRef.current), startedAt: relativeNow(), lastQueuedText: '' };
+      const startedAt = relativeNow();
+      currentSpeechEventRef.current = { clientEventId: newEventId(participantIdRef.current), startedAt, lastQueuedText: '', lastChangedText: '', lastChangedAt: startedAt };
     }
     return currentSpeechEventRef.current;
   }, [relativeNow]);
 
   const schedulePartialUpload = useCallback((text: string) => {
     partialTextRef.current = text;
-    ensureSpeechEvent();
+    const speechEvent = ensureSpeechEvent();
+    const latestText = text.trim();
+    if (latestText && latestText !== speechEvent.lastChangedText) {
+      speechEvent.lastChangedText = latestText;
+      speechEvent.lastChangedAt = relativeNow();
+    }
     if (partialTimerRef.current !== null) return;
     partialTimerRef.current = window.setTimeout(() => {
       partialTimerRef.current = null;
@@ -273,7 +303,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       speechEvent.lastQueuedText = latestText;
       void enqueueUtterance({ text: latestText, clientEventId: speechEvent.clientEventId, startedAt: speechEvent.startedAt, source: 'iflytek', isFinal: false }).catch(() => undefined);
     }, PARTIAL_UPLOAD_INTERVAL_MS);
-  }, [enqueueUtterance, ensureSpeechEvent]);
+  }, [enqueueUtterance, ensureSpeechEvent, relativeNow]);
 
   const acceptRoom = useCallback((snapshot: RoomSnapshot) => {
     serverClockRef.current = { serverNow: snapshot.serverNow, receivedAt: performance.now() };
@@ -384,8 +414,12 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
           const finalText = tail || partialTextRef.current.trim();
           const speechEvent = currentSpeechEventRef.current || (finalText ? ensureSpeechEvent() : null);
           if (speechEvent && finalText) {
+            if (finalText !== speechEvent.lastChangedText) {
+              if (!speechEvent.lastChangedText) speechEvent.lastChangedAt = relativeNow();
+              speechEvent.lastChangedText = finalText;
+            }
             speechEvent.lastQueuedText = finalText;
-            void enqueueUtterance({ text: finalText, clientEventId: speechEvent.clientEventId, startedAt: speechEvent.startedAt, source: 'iflytek', isFinal: true }).catch(() => undefined);
+            void enqueueUtterance({ text: finalText, clientEventId: speechEvent.clientEventId, startedAt: speechEvent.startedAt, endedAt: speechEvent.lastChangedAt, source: 'iflytek', isFinal: true }).catch(() => undefined);
           }
           committedCharactersRef.current = text.length;
           currentSpeechEventRef.current = null; partialTextRef.current = ''; setDraft('');
@@ -410,14 +444,17 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       setMicActive(false); setEngine(null); setStatus('closed');
       setMicError(`讯飞实时听写未启动：${error instanceof Error ? error.message : '连接失败'}`);
     } finally { micStartingRef.current = false; setMicStarting(false); }
-  }, [clearPartialTimer, enqueueUtterance, ensureSpeechEvent, schedulePartialUpload, waitForUploads]);
+  }, [clearPartialTimer, enqueueUtterance, ensureSpeechEvent, relativeNow, schedulePartialUpload, waitForUploads]);
 
   useEffect(() => {
     if (!participantToken || room?.status !== 'live' || !room.startedAt) return;
     const attemptKey = `${participantToken}:${room.startedAt}`;
     if (autoMicAttemptedRef.current === attemptKey) return;
-    autoMicAttemptedRef.current = attemptKey;
-    const timer = window.setTimeout(() => void startMic(), 180);
+    const timer = window.setTimeout(() => {
+      if (autoMicAttemptedRef.current === attemptKey) return;
+      autoMicAttemptedRef.current = attemptKey;
+      void startMic();
+    }, 180);
     return () => window.clearTimeout(timer);
   }, [participantToken, room?.startedAt, room?.status, startMic]);
 
@@ -431,7 +468,7 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
       catch (error) {
         const speechEvent = currentSpeechEventRef.current;
         const text = partialTextRef.current.trim();
-        if (speechEvent && text) void enqueueUtterance({ text, clientEventId: speechEvent.clientEventId, startedAt: speechEvent.startedAt, source: 'iflytek', isFinal: true }).catch(() => undefined);
+        if (speechEvent && text) void enqueueUtterance({ text, clientEventId: speechEvent.clientEventId, startedAt: speechEvent.startedAt, endedAt: speechEvent.lastChangedAt, source: 'iflytek', isFinal: true }).catch(() => undefined);
         setMicError(error instanceof Error ? error.message : '麦克风收尾失败');
       }
       await waitForUploads();
@@ -490,12 +527,12 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
   };
 
   if (restoring) {
-    return <main className="join-shell"><section className="join-card" aria-live="polite"><div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议参与端</small></span></div><p className="eyebrow"><span /> 加入码 {normalizedCode}</p><h1>正在恢复会场…</h1><p>正在读取你在本设备上的加入状态。</p></section></main>;
+    return <main className="join-shell"><section className="join-card" aria-live="polite"><div className="brand"><span className="brand-mark">催</span><span><strong>催催</strong><small>会议参与端</small></span></div><p className="eyebrow"><span /> 加入码 {normalizedCode}</p><h1>正在恢复会场…</h1><p>正在读取你在本设备上的加入状态。</p></section></main>;
   }
 
   if (!participantToken) {
     return <main className="join-shell"><section className="join-card">
-      <div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议参与端</small></span></div>
+      <div className="brand"><span className="brand-mark">催</span><span><strong>催催</strong><small>会议参与端</small></span></div>
       <p className="eyebrow"><span /> 加入码 {normalizedCode}</p><h1>加入这场会议</h1>
       <p>输入姓名后加入。会议已开始时会立即请求麦克风权限；还在等待时，会在主持人开始后自动尝试一次。</p>
       <form onSubmit={(event) => void join(event)}>
@@ -519,9 +556,10 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
     : 0;
   const activeParticipants = room?.participants.filter((person) => person.left_at === null) || [];
   const interventions = room?.interventions || [];
-  const latestIntervention = interventions.at(-1);
+  const latestIntervention = [...interventions].reverse().find((event) => event.level !== 'L0') || interventions.at(-1);
   const sharedLines = (room?.utterances || [])
     .filter((line) => !(draft && !line.final && line.participant_id === participantId))
+    .sort((left, right) => left.started_at - right.started_at || left.ended_at - right.ended_at || left.id.localeCompare(right.id))
     .slice(-120);
   const statusCopy = roomStatus === 'live' ? '会议进行中' : roomStatus === 'closing' ? '会议正在收尾' : roomStatus === 'ended' ? '会议已结束' : '等待主持人开始';
   const statusHelp = roomStatus === 'live'
@@ -535,8 +573,9 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
     : remaining >= 0 ? `预计 ${formatElapsed(remaining)} 后结束` : `已超出计划 ${formatElapsed(Math.abs(remaining))}`;
 
   return <main className="participant-shell">
+    <ParticipantInterventionToast events={interventions} />
     <header className="participant-header">
-      <div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>参与端 · {normalizedCode}</small></span></div>
+      <div className="brand"><span className="brand-mark">催</span><span><strong>催催</strong><small>参与端 · {normalizedCode}</small></span></div>
       <span className={`room-status ${roomStatus}`}><i />{statusCopy}</span>
       <button className="control-chip" type="button" disabled={exiting} onClick={() => void exit()}>{exiting ? '正在退出…' : '退出'}</button>
     </header>
@@ -562,12 +601,12 @@ export default function ParticipantView({ code, onExit }: { code: string; onExit
         </section>
         <aside className="participant-shared-side">
           <section className={`participant-reminder ${latestIntervention?.severity || 'calm'}`}>
-            <header><div><p>CUICUI AGENT</p><h2>现场提醒</h2></div><b>{interventions.length} 条</b></header>
+            <header><div><p>催催提醒</p><h2>现场提醒</h2></div><b>{interventions.length} 条</b></header>
             {latestIntervention ? <article><div><span>{latestIntervention.label}</span><time>{formatElapsed(latestIntervention.at)}</time></div><p><b>观察</b>{latestIntervention.observation}</p><p><b>建议</b>{latestIntervention.suggestion}</p><footer><span>判断依据</span><b>{latestIntervention.evidence}</b></footer></article> : <div className="participant-calm"><span>✓</span><div><b>尚无充分介入证据</b><p>催催正根据全场字幕、议题和剩余时间持续判断。</p></div></div>}
-            {interventions.length > 1 && <div className="participant-reminder-history">{interventions.slice(-4, -1).reverse().map((event) => <span key={event.id}><time>{formatElapsed(event.at)}</time>{event.label}</span>)}</div>}
+            {interventions.length > 0 && <div className="participant-reminder-history">{interventions.slice(-5).reverse().map((event) => <span key={event.id}><time>{formatElapsed(event.at)}</time><i>{event.level}</i>{event.label}</span>)}</div>}
           </section>
           <section className="participant-roster">
-            <header><div><p>ROOM MEMBERS</p><h2>参会人</h2></div><b>{activeParticipants.filter((person) => person.online).length} / {activeParticipants.length} 在线</b></header>
+            <header><div><p>参会人</p><h2>当前成员</h2></div><b>{activeParticipants.filter((person) => person.online).length} / {activeParticipants.length} 在线</b></header>
             <div>{activeParticipants.map((person) => <article key={person.id} className={person.id === participantId ? 'self' : ''}><span className="participant-avatar">{person.name.slice(0, 1)}</span><div><b>{person.name}</b><p>{person.role}</p></div><em className={person.online ? 'online' : ''}>{person.id === participantId ? '我' : person.role === '主持人' ? '主持人' : person.online ? '在线' : '暂离'}</em></article>)}</div>
           </section>
         </aside>

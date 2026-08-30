@@ -1,5 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+function localEnv(name) {
+  try {
+    const line = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8').split(/\r?\n/).find((item) => item.trim().startsWith(`${name}=`));
+    return line ? line.slice(line.indexOf('=') + 1).trim().replace(/^['"]|['"]$/g, '') : '';
+  } catch { return ''; }
+}
+
 const baseUrl = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const password = process.env.SITE_ACCESS_PASSWORD;
+const password = process.env.SITE_ACCESS_PASSWORD || localEnv('SITE_ACCESS_PASSWORD');
 if (!password) throw new Error('缺少 SITE_ACCESS_PASSWORD');
 
 const loginResponse = await fetch(`${baseUrl}/api/access/login`, {
@@ -119,6 +129,11 @@ const intervention = {
   at: 1.6,
   type: 'time',
   severity: 'warning',
+  level: 'L1',
+  priority: 200,
+  occurrence: 1,
+  incidentKey: 'time:verify',
+  displayMs: 7000,
   label: '节奏提醒',
   observation: '当前议题讨论时间已接近计划上限。',
   impact: '后续决策时间可能不足。',
@@ -220,7 +235,7 @@ const checks = {
   existingEventUpdatesUseOneRow: rateRows.length === 1,
   closingExposedDeadline: closing.room?.status === 'closing'
     && Number.isFinite(closingServerNow)
-    && configuredClosingDrainMs >= 11_500 && configuredClosingDrainMs <= 12_500,
+    && configuredClosingDrainMs >= 5_500 && configuredClosingDrainMs <= 6_500,
   closingAcceptedFinal: drained.utterance?.final === true && drainRows.length === 1,
   endedReturnedFinalSnapshot: ended.room?.status === 'ended' && Number.isFinite(ended.room?.endedAt) && drainRows[0]?.text.includes('仍然被收拢'),
   endedRejectedNewUtterance: rejectedAfterEnd.response.status === 409,

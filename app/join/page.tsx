@@ -16,7 +16,7 @@ export default async function JoinPage({ searchParams }: JoinPageProps) {
 
   return <main className="join-shell">
     <section className="join-card">
-      <div className="brand"><span className="brand-mark">C²</span><span><strong>催催</strong><small>会议参与端</small></span></div>
+      <div className="brand"><span className="brand-mark">催</span><span><strong>催催</strong><small>会议参与端</small></span></div>
       <p className="eyebrow"><span /> 多人会议</p>
       <h1>输入加入码</h1>
       <p>向主持人获取六位加入码，进入后填写你的姓名即可参会。</p>
