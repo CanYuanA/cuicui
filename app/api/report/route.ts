@@ -143,7 +143,7 @@ export async function POST(request: Request) {
   const metrics = scoreMeeting({ ...input, transcript, events });
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_REPORT_MODEL || 'qwen/qwen3.5-flash-02-23';
+  const model = process.env.OPENROUTER_REPORT_MODEL || 'z-ai/glm-5.3-flash';
   if (!apiKey || transcript.length === 0) return Response.json({ ...metrics, ...fallbackNarrative(input), source: 'local-fallback' });
 
   const transcriptText = transcript.map((line) => `${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 700)}`).join('\n').slice(-14000);
@@ -158,8 +158,10 @@ export async function POST(request: Request) {
 转写：
 ${transcriptText}
 
-会中事件：
-${eventText || '无'}`;
+  会中事件：
+  ${eventText || '无'}
+
+  只返回 JSON 对象，必须包含 summary、verdict、necessity、necessityReason、decisions、actions、suggestions、attendanceAdvice。necessity 只能是“有必要开”或“可考虑异步”；decisions 与 suggestions 是字符串数组；actions 是包含 owner、task、due 的对象数组。`;
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -172,13 +174,14 @@ ${eventText || '无'}`;
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'system', content: '你是严谨的会议证据审计器。不得给鼓励性默认结论，不得补造决策、负责人或期限。最终输出必须是符合给定 schema 的 JSON。' }, { role: 'user', content: prompt }],
+        messages: [{ role: 'system', content: '你是严谨的会议证据审计器。不得给鼓励性默认结论，不得补造决策、负责人或期限。最终只输出 JSON 对象。' }, { role: 'user', content: prompt }],
         temperature: 0.2,
-        max_tokens: 1400,
-        reasoning: { enabled: false },
-        include_reasoning: false,
+        max_tokens: model === 'z-ai/glm-5.3-flash' ? 3200 : 1400,
+        ...(model === 'z-ai/glm-5.3-flash'
+          ? { reasoning: { effort: 'low', exclude: true } }
+          : { reasoning: { enabled: false }, include_reasoning: false }),
         provider: { require_parameters: true },
-        response_format: {
+        response_format: model === 'z-ai/glm-5.3-flash' ? { type: 'json_object' } : {
           type: 'json_schema',
           json_schema: {
             name: 'meeting_report', strict: true,
@@ -196,7 +199,7 @@ ${eventText || '无'}`;
           },
         },
       }),
-      signal: AbortSignal.timeout(22000),
+      signal: AbortSignal.timeout(model === 'z-ai/glm-5.3-flash' ? 45000 : 22000),
     });
     if (!response.ok) {
       const failure = await response.json().catch(() => ({})) as { error?: { message?: string; metadata?: { raw?: string } } };

@@ -2,11 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const ACCESS_COOKIE_NAME = 'cuicui_access';
 
-const COOKIE_VERSION = 1;
-
-function accessPassword() {
-  return process.env.SITE_ACCESS_PASSWORD || '';
-}
+const COOKIE_VERSION = 2;
 
 function signingSecret() {
   const value = process.env.DEMO_SESSION_SECRET;
@@ -22,11 +18,6 @@ function safeEqual(left: string, right: string) {
   const leftBytes = Buffer.from(left);
   const rightBytes = Buffer.from(right);
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
-}
-
-export function verifyAccessPassword(candidate: string) {
-  const expected = accessPassword();
-  return Boolean(expected) && safeEqual(candidate, expected);
 }
 
 export function issueAccessCookie() {
@@ -63,10 +54,4 @@ function cookieValue(request: Request, name: string) {
 
 export function isAccessAuthorized(request: Request) {
   return verifyAccessToken(cookieValue(request, ACCESS_COOKIE_NAME));
-}
-
-export function safeReturnPath(value: unknown) {
-  const candidate = typeof value === 'string' ? value.trim() : '';
-  if (!candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return '/';
-  return candidate;
 }

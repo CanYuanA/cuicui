@@ -4,7 +4,7 @@
 
 公网演示：<https://cuicui.iotaceti.top>
 
-访问站点时会先进入全站密码页。密码由演示负责人单独提供，不写入仓库或文档。验证通过后，当前浏览器会话可直接使用全部演示功能，不设置额外的体验次数或时长限额。
+站点无需输入访问密码，打开首页或加入链接即可直接体验。浏览器会自动获得无感签名会话，用于保护 OpenRouter 与讯飞接口；不设置额外的体验次数或时长限额。
 
 ## 两个入口
 
@@ -62,7 +62,7 @@ mise run install
 mise run dev
 ```
 
-访问 <http://localhost:3000>。将 `.env.example` 复制为 `.env.local`，并设置本地的 `SITE_ACCESS_PASSWORD`、会话签名参数和所需服务凭据；不要提交真实密钥。
+访问 <http://localhost:3000>。将 `.env.example` 复制为 `.env.local`，并设置本地的会话签名参数和所需服务凭据；不要提交真实密钥。
 
 ```powershell
 mise run check
@@ -96,15 +96,14 @@ mise run audio-verify
 
 ```text
 app/
-├─ access/                 # 全站访问密码页
-├─ api/                    # 讯飞、会中分析、报告与访问验证
+├─ api/                    # 讯飞、会中分析、报告与无感会话
 ├─ join/                   # 加入码入口与移动端参与页面
 ├─ meeting-app.tsx         # 演示会议、单人体验、多人主持台与会后报告
 ├─ participant-view.tsx    # 多人会议参与端、共享字幕与提醒
 ├─ intervention-routing.ts # L0/L1/L2 干预分级与优先级
 ├─ room-types.ts           # 主持端、参与端与 API 共用的房间协议
 ├─ live-transcriber.ts     # 讯飞 40ms 音频帧直连，失败明确报错
-└─ server/                 # 全站 Cookie 验证与服务端访问控制
+└─ server/                 # 无感签名会话与服务端访问控制
 public/demo/               # 演示录音、manifest 与运行记录
 scripts/                   # 音频生成、链路验证与公开 API 检查
 ```

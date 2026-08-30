@@ -1135,7 +1135,7 @@ function HostMeetingApp() {
     if (generation !== analysisGenerationRef.current) return true;
     const controller = new AbortController();
     analysisControllersRef.current.add(controller);
-    const requestTimer = window.setTimeout(() => controller.abort(), 20_000);
+    const requestTimer = window.setTimeout(() => controller.abort(), 38_000);
     try {
       const transcript = analysisLines.map((line) => ({ id: line.id, speakerId: line.speakerId, speaker: getSpeaker(line.speakerId, configAtRequest.attendees).name, text: line.text, at: line.at, end: line.end, workRelated: line.workRelated, interrupted: line.interrupted }));
       const accessToken = await getDemoSession();
@@ -1253,7 +1253,7 @@ function HostMeetingApp() {
     clearScopedError('room-control');
     clearScopedError('room-sync');
     const controller = new AbortController();
-    const requestTimer = window.setTimeout(() => controller.abort(), 15_000);
+    const requestTimer = window.setTimeout(() => controller.abort(), 55_000);
     try {
       const accessToken = await getDemoSession();
       const response = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cuicui-Session': accessToken }, body: JSON.stringify({ meeting: { title: reportConfig.title, durationSeconds: reportConfig.durationSeconds, agenda: reportConfig.agenda, attendees: reportConfig.attendees.map((person) => ({ id: person.id, name: person.name })) }, actualSeconds, transcript: lines.map((line) => ({ ...line, speaker: getSpeaker(line.speakerId, reportConfig.attendees).name })), events: liveEvents }), signal: controller.signal });

@@ -118,7 +118,6 @@ jobs:
           test -f "$APP_DIRECTORY/.env"
           test -f "$APP_DIRECTORY/app.env"
           test -f docker-compose.prod.yml
-          grep -q '^SITE_ACCESS_PASSWORD=.' "$APP_DIRECTORY/app.env"
           grep -q '^DEMO_SESSION_SECRET=.' "$APP_DIRECTORY/app.env"
           install -m 0640 docker-compose.prod.yml "$APP_DIRECTORY/docker-compose.yml.next"
           cd "$APP_DIRECTORY"
@@ -204,7 +203,7 @@ jobs:
 
           public_healthy=false
           for attempt in $(seq 1 18); do
-            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true and .services.access == true' >/dev/null; then
+            if health_json="$(curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL")" && printf '%s' "$health_json" | jq -e '.ok == true and .services.openrouter == true and .services.iflytek == true and .services.access == true and .models.analysis == "z-ai/glm-5.3-flash" and .models.report == "z-ai/glm-5.3-flash"' >/dev/null; then
               public_healthy=true
               break
             fi
@@ -216,29 +215,16 @@ jobs:
             exit 1
           fi
 
-          site_password="$(sed -n 's/^SITE_ACCESS_PASSWORD=//p' "$APP_DIRECTORY/app.env" | head -n 1)"
-          site_password="${site_password%$'\r'}"
-          if [[ "$site_password" == \"*\" ]] && [ "${#site_password}" -ge 2 ]; then
-            site_password="${site_password:1:${#site_password}-2}"
-          fi
-          if [ -z "$site_password" ]; then
-            echo "The site access password is unavailable for production verification." >&2
-            rollback || true
-            exit 1
-          fi
           if ! docker run --rm \
             --env BASE_URL="$PUBLIC_ORIGIN" \
-            --env SITE_ACCESS_PASSWORD="$site_password" \
             --volume "$GITHUB_WORKSPACE/scripts/verify-room-api.mjs:/verify-room-api.mjs:ro" \
             --entrypoint node \
             "$target_image_ref" \
             /verify-room-api.mjs; then
-            unset site_password
             echo "The production room lifecycle verification failed." >&2
             rollback || true
             exit 1
           fi
-          unset site_password
 
           if ! mv "$next_compose" "$active_compose"; then
             echo "The verified Compose configuration could not be activated." >&2

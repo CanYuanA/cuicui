@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
+import { INTERVENTION_CHIME_CUES } from '../app/intervention-chime.ts';
 import { findDisagreementEvidence, isContentInterruption, routeInterventions, type InterventionCandidate, type PreviousIntervention } from '../app/intervention-routing.ts';
+
+assert.equal(INTERVENTION_CHIME_CUES.L1.length, 1, 'L1 应使用单次柔和提示音');
+assert.equal(INTERVENTION_CHIME_CUES.L2.length, 1, 'L2 也应保持单次提示音');
+assert.notEqual(INTERVENTION_CHIME_CUES.L1[0].frequency, INTERVENTION_CHIME_CUES.L2[0].frequency, 'L1 与 L2 的主音高必须不同');
+assert.notDeepEqual(INTERVENTION_CHIME_CUES.L1[0].partials, INTERVENTION_CHIME_CUES.L2[0].partials, 'L1 与 L2 的音色必须不同');
+assert.ok(Math.max(...INTERVENTION_CHIME_CUES.L2.map((note) => note.gain)) <= .055, 'L2 音量应保持克制');
 
 const normalOverlap = [
   { speakerId: 'a', speaker: '甲', text: '我建议先灰度一小时，再决定是否全量。', at: 10, end: 16 },
@@ -58,5 +65,6 @@ console.log(JSON.stringify({
     sequentialDisagreementRecognized: true,
     disagreementOutranksInterrupt: true,
     disagreementReplacesCriticalInterrupt: true,
+    l1AndL2UseDistinctChimes: true,
   },
 }, null, 2));

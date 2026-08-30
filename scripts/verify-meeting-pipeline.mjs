@@ -144,9 +144,9 @@ function slicePcm(pcm, fromSeconds, toSeconds) {
   return pcm.subarray(Math.floor(fromSeconds * bytesPerSecond), Math.min(pcm.length, Math.floor(toSeconds * bytesPerSecond)));
 }
 
-async function callApi(path, body) {
+async function callApi(path, body, timeoutMs = 30000) {
   const response = await fetch(`http://localhost:3000${path}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: accessCookie, 'X-Cuicui-Session': demoSessionToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: accessCookie, 'X-Cuicui-Session': demoSessionToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(`${path} ${response.status}: ${JSON.stringify(payload).slice(0, 400)}`);
@@ -157,17 +157,15 @@ async function main() {
   mkdirSync(evidenceDir, { recursive: true });
   mkdirSync(workDir, { recursive: true });
   const env = { ...readEnv(join(root, '.env.local')), ...process.env };
-  for (const key of ['IFLYTEK_APP_ID', 'IFLYTEK_API_KEY', 'IFLYTEK_API_SECRET', 'SITE_ACCESS_PASSWORD']) if (!env[key]) throw new Error(`缺少 ${key}`);
+  for (const key of ['IFLYTEK_APP_ID', 'IFLYTEK_API_KEY', 'IFLYTEK_API_SECRET']) if (!env[key]) throw new Error(`缺少 ${key}`);
   if (!existsSync(manifestPath)) throw new Error('请先运行 generate-meeting-audio.mjs');
   const healthResponse = await fetch('http://localhost:3000/api/health', { signal: AbortSignal.timeout(5000) });
   if (!healthResponse.ok) throw new Error(`本地应用预检失败：HTTP ${healthResponse.status}`);
   const health = await healthResponse.json();
   if (!health.services?.openrouter || !health.services?.iflytek) throw new Error('本地应用预检失败：真实 AI/讯飞服务未就绪');
-  const loginResponse = await fetch('http://localhost:3000/api/access/login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: env.SITE_ACCESS_PASSWORD }), signal: AbortSignal.timeout(5000),
-  });
-  accessCookie = (loginResponse.headers.get('set-cookie') || '').split(';')[0];
-  if (!loginResponse.ok || !accessCookie) throw new Error('本地应用预检失败：访问密码验证失败');
+  const entryResponse = await fetch('http://localhost:3000/', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+  accessCookie = (entryResponse.headers.get('set-cookie') || '').split(';')[0];
+  if (!entryResponse.ok || !accessCookie) throw new Error('本地应用预检失败：无感体验会话初始化失败');
   const sessionResponse = await fetch('http://localhost:3000/api/demo-session', { method: 'POST', headers: { Cookie: accessCookie }, signal: AbortSignal.timeout(5000) });
   const session = await sessionResponse.json();
   if (!sessionResponse.ok || !session.token) throw new Error('本地应用预检失败：无法创建受控体验会话');
@@ -222,7 +220,7 @@ async function main() {
   let analysisRuns = [];
   try {
     const previous = JSON.parse(readFileSync(outputPath, 'utf8'));
-    if (previous.analysisRulesVersion === 'intervention-ladder-v4' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter') && previous.events?.every((event) => event.type && event.level)) {
+    if (previous.analysisRulesVersion === 'intervention-ladder-v4' && previous.provenance?.sourceAudioSha256 === manifest.artifacts.master.sha256 && previous.analysisRuns?.length === transcript.length && previous.analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'z-ai/glm-5.3-flash') && previous.events?.every((event) => event.type && event.level)) {
       events = previous.events; analysisRuns = previous.analysisRuns;
       console.log('reusing verified OpenRouter analysis runs; only report will rerun');
     }
@@ -235,7 +233,7 @@ async function main() {
         elapsedSeconds: snapshot.at(-1).end,
         previousEvents: events.map(({ id, at, type, level, priority, incidentKey, occurrence }) => ({ id, at, type, level, priority, incidentKey, occurrence })),
         transcript: snapshot.map(({ id, speakerId, speaker, text, at, end, workRelated, interrupted }) => ({ id, speakerId, speaker, text, at, end, workRelated, interrupted })),
-      });
+      }, 38000);
       analysisRuns.push({ at: snapshot.at(-1).end, source: analysis.source, model: analysis.model || null, usage: analysis.usage || null, events: analysis.events || [] });
       for (const [eventIndex, event] of (analysis.events || []).entries()) {
         events.push({
@@ -252,7 +250,7 @@ async function main() {
     actualSeconds: fixture.meeting.durationSeconds,
     transcript,
     events,
-  });
+  }, 55000);
 
   const safeSessions = (sessions) => sessions.map((session) => ({
     label: session.label,
@@ -295,9 +293,9 @@ async function main() {
       masterRecognized: normalizeChinese(masterText).length >= 80,
       segmentAccuracyAcceptable: averageSegmentSimilarity >= 0.55 && segmentSimilarities.every((value) => value >= 0.2),
       analysisWasInvoked: analysisRuns.length === transcript.length,
-      analysisUsedOpenRouter: analysisRuns.every((run) => run.source === 'openrouter'),
+      analysisUsedOpenRouter: analysisRuns.every((run) => run.source === 'openrouter' && run.model === 'z-ai/glm-5.3-flash'),
       reportWasInvoked: Boolean(report.summary),
-      reportUsedOpenRouter: report.source === 'openrouter',
+      reportUsedOpenRouter: report.source === 'openrouter' && report.model === 'z-ai/glm-5.3-flash',
       reportShapeValid: typeof report.verdict === 'string' && typeof report.necessityReason === 'string' && Array.isArray(report.decisions) && Array.isArray(report.actions) && Array.isArray(report.suggestions),
       reportActionsClean: report.actions.every((action) => !/(?:会议结束|散会)/.test(String(action.task || ''))
         && !fixture.speakers.some((speaker) => speaker.name !== action.owner && String(action.task || '').includes(speaker.name))),

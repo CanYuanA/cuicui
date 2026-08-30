@@ -174,14 +174,14 @@ export async function POST(request: Request) {
 
   const deterministic = localCandidates(input, transcript);
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_ANALYSIS_MODEL || 'qwen/qwen3.5-flash-02-23';
+  const model = process.env.OPENROUTER_ANALYSIS_MODEL || 'z-ai/glm-5.3-flash';
   if (!apiKey) return Response.json(responseShape(input, deterministic, 'local-fallback'));
 
   const elapsed = Math.max(0, Number(input.elapsedSeconds || 0));
   const duration = Math.max(1, Number(input.meeting?.durationSeconds || 1800));
   const transcriptText = transcript.map((line) => `[${Math.max(0, Number(line.at || 0)).toFixed(1)}-${Math.max(0, Number(line.end || line.at || 0)).toFixed(1)}s] ${line.speaker || line.speakerId || '未知'}：${String(line.text || '').slice(0, 600)}`).join('\n').slice(-9000);
   const systemPrompt = `你是克制的会中事件检测器。只检测，不决定提醒层级；层级由服务端规则路由。
-严格规则：生活闲聊连续出现才算 smalltalk；工作内容偏离当前议题才算 off_topic；同一观点至少三次且没有新增事实才算 repeat；不同发言者针对同一方案表达明确相反立场才算 disagreement；interrupt 必须在发言内容中出现“打断一下、先停、先别说、不用继续、别把”等明确抢断语义，单纯更换发言人、时间戳重叠或正常接话绝不能算 interrupt；time 必须有进度与未决议题证据。正常论证不提醒。身份和职级不影响判断。每个结论必须引用最近转写原话，不得写“AI判断”。最多返回两个候选，没有充分证据返回空数组。最终输出必须符合 JSON schema。`;
+  严格规则：生活闲聊连续出现才算 smalltalk；工作内容偏离当前议题才算 off_topic；同一观点至少三次且没有新增事实才算 repeat；不同发言者针对同一方案表达明确相反立场才算 disagreement；interrupt 必须在发言内容中出现“打断一下、先停、先别说、不用继续、别把”等明确抢断语义，单纯更换发言人、时间戳重叠或正常接话绝不能算 interrupt；time 必须有进度与未决议题证据。正常论证不提醒。身份和职级不影响判断。每个结论必须引用最近转写原话，不得写“AI判断”。最多返回两个候选，没有充分证据返回空数组。只返回 JSON 对象：{"events":[{"type":"枚举值","severity":"info|warning|critical|success","incidentKey":"稳定键","label":"短标题","observation":"观察","impact":"影响","suggestion":"建议","evidence":"转写原话","confidence":0到1}]}。`;
   const userPrompt = `会议：${String(input.meeting?.title || '未命名会议')}\n议题：${(input.meeting?.agenda || []).join('；') || '未设置'}\n进度：${elapsed.toFixed(0)} / ${duration.toFixed(0)} 秒\n历史事件：${previousEvents(input).map((event) => `${event.type}-${event.level}`).join('、') || '无'}\n\n最近转写：\n${transcriptText}`;
 
   try {
@@ -189,9 +189,13 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': process.env.PUBLIC_SITE_URL || 'http://localhost:3000', 'X-Title': 'Cuicui Meeting Assistant' },
       body: JSON.stringify({
-        model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: .1, max_tokens: 650,
-        reasoning: { enabled: false }, include_reasoning: false, provider: { require_parameters: true },
-        response_format: { type: 'json_schema', json_schema: { name: 'meeting_incidents', strict: true, schema: {
+        model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: .1,
+        max_tokens: model === 'z-ai/glm-5.3-flash' ? 1800 : 650,
+        ...(model === 'z-ai/glm-5.3-flash'
+          ? { reasoning: { effort: 'low', exclude: true } }
+          : { reasoning: { enabled: false }, include_reasoning: false }),
+        provider: { require_parameters: true },
+        response_format: model === 'z-ai/glm-5.3-flash' ? { type: 'json_object' } : { type: 'json_schema', json_schema: { name: 'meeting_incidents', strict: true, schema: {
           type: 'object', additionalProperties: false,
           properties: { events: { type: 'array', maxItems: 2, items: { type: 'object', additionalProperties: false, properties: {
             type: { type: 'string', enum: eventTypes }, severity: { type: 'string', enum: ['info', 'warning', 'critical', 'success'] }, incidentKey: { type: 'string' },
@@ -199,7 +203,7 @@ export async function POST(request: Request) {
           }, required: ['type', 'severity', 'incidentKey', 'label', 'observation', 'impact', 'suggestion', 'evidence', 'confidence'] } } }, required: ['events'],
         } } },
       }),
-      signal: AbortSignal.timeout(18000),
+      signal: AbortSignal.timeout(model === 'z-ai/glm-5.3-flash' ? 30000 : 18000),
     });
     if (!response.ok) throw new Error(`OpenRouter ${response.status}`);
     const result = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };

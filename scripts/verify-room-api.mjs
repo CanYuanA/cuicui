@@ -1,30 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-function localEnv(name) {
-  try {
-    const line = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8').split(/\r?\n/).find((item) => item.trim().startsWith(`${name}=`));
-    return line ? line.slice(line.indexOf('=') + 1).trim().replace(/^['"]|['"]$/g, '') : '';
-  } catch { return ''; }
-}
-
 const baseUrl = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const password = process.env.SITE_ACCESS_PASSWORD || localEnv('SITE_ACCESS_PASSWORD');
-if (!password) throw new Error('缺少 SITE_ACCESS_PASSWORD');
-
-const loginResponse = await fetch(`${baseUrl}/api/access/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ password }),
-});
-const setCookieHeaders = typeof loginResponse.headers.getSetCookie === 'function'
-  ? loginResponse.headers.getSetCookie()
-  : [loginResponse.headers.get('set-cookie') || ''];
+const entryResponse = await fetch(`${baseUrl}/`, { cache: 'no-store' });
+const setCookieHeaders = typeof entryResponse.headers.getSetCookie === 'function'
+  ? entryResponse.headers.getSetCookie()
+  : [entryResponse.headers.get('set-cookie') || ''];
 const accessSetCookie = setCookieHeaders
   .flatMap((header) => header.split(/,(?=\s*[^;,=\s]+=[^;,]*)/))
   .find((header) => /^\s*cuicui_access=/.test(header));
 const accessCookie = (accessSetCookie || '').trim().split(';')[0];
-if (!loginResponse.ok || !accessCookie) throw new Error(`访问登录失败（HTTP ${loginResponse.status}）`);
+if (!entryResponse.ok || !accessCookie) throw new Error(`无感体验会话初始化失败（HTTP ${entryResponse.status}）`);
 
 async function requestJson(path, options = {}) {
   const headers = new Headers(options.headers || {});
