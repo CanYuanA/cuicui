@@ -20,17 +20,19 @@
 
 催催通过实时语音听写持续获得带身份和时间的会议字幕，并将新发言与会议议程、剩余时间、已有提醒共同送入会中分析。它不会把每个信号都变成弹窗，而是使用 L0、L1、L2 的干预分级：首次偏题等低影响信号先静默记录；重复出现或需要主持人关注时给出轻提醒；明确的意见分歧、紧迫的时间风险等情况才升级为更醒目的加强提醒。
 
-提醒中呈现“观察—影响—建议—判断依据”，让主持人知道为什么此刻需要介入。主持人可以采纳建议、放入会后停车场或忽略，避免 AI 越权替人拍板。典型演示会议中，催催会先观察正常讨论，再识别连续闲聊并提醒回到上线条件；对于研发与业务负责人的不同意见，它将分歧与抢话区分处理，并在接近结束时预警超时风险。
+每次提醒都围绕当前一段讨论生成：催催会标注检测到的问题、它可能对会议造成的影响、建议的下一步，以及可定位的字幕证据。主持人可以采纳建议、放入会后停车场或忽略，AI 不替团队拍板。以下三张图对应演示会议中依次出现的“偏题—分歧—形成决策”三个会中信号。
 
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png" width="96%" alt="催催识别会议偏题并给出回归议程建议" /></div>
+当讨论连续转向团建、餐厅等与上线评审无关的话题时，催催标记“闲聊偏题”，提示“建议会后再聊，先确认上线条件”，帮助主持人把讨论拉回当前议程。
 
-当讨论从不同意见走向僵持时，催催会识别核心分歧、展示各方观点，并提示主持人把争论收敛到需要决策的问题上。
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png" width="96%" alt="催催检测到闲聊偏题后，提示会后再聊并回到上线条件" /></div>
 
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-disagreement-intervention.png" width="96%" alt="催催识别会议中的意见分歧并提示收敛讨论" /></div>
+当两位参会者对同一方案持明确相反立场时，催催标记“意见分歧”，提示双方分别说明各自成立条件，再由主持人明确决策标准。它识别的是有证据的分歧，而不会把正常的不同观点简单误判为抢话。
 
-当关键事项达成共识后，催催会将已确认信息沉淀到右侧的待推进事项中，帮助主持人决定是继续收敛、采纳建议，还是暂存到会后再处理。
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-disagreement-intervention.png" width="96%" alt="催催识别对同一方案的意见分歧，并提示明确决策标准" /></div>
 
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-decision-intervention.png" width="96%" alt="催催识别关键决策并提示补齐负责人和下一步" /></div>
+当发布节奏、异常阈值和暂停条件已经确认时，催催标记“形成决策”，提示团队继续补齐负责人和时间点；已确认内容同步沉淀到右侧的待推进事项，帮助团队从共识进入执行。
+
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-decision-intervention.png" width="96%" alt="催催识别已形成的发布决策，并提示补齐负责人和时间点" /></div>
 
 ## 会后：基于讨论证据复盘效率，把结论接成行动
 
