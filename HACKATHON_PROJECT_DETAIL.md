@@ -24,7 +24,11 @@
 
 <div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png" width="96%" alt="催催识别会议偏题并给出回归议程建议" /></div>
 
-当讨论从不同意见走向僵持时，催催会将关键分歧和已确认信息沉淀到右侧的待推进事项中，帮助主持人决定是继续收敛、采纳建议，还是暂存到会后再处理。
+当讨论从不同意见走向僵持时，催催会识别核心分歧、展示各方观点，并提示主持人把争论收敛到需要决策的问题上。
+
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-disagreement-intervention.png" width="96%" alt="催催识别会议中的意见分歧并提示收敛讨论" /></div>
+
+当关键事项达成共识后，催催会将已确认信息沉淀到右侧的待推进事项中，帮助主持人决定是继续收敛、采纳建议，还是暂存到会后再处理。
 
 <div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-decision-intervention.png" width="96%" alt="催催识别关键决策并提示补齐负责人和下一步" /></div>
 
