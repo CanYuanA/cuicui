@@ -22,7 +22,11 @@
 
 提醒中呈现“观察—影响—建议—判断依据”，让主持人知道为什么此刻需要介入。主持人可以采纳建议、放入会后停车场或忽略，避免 AI 越权替人拍板。典型演示会议中，催催会先观察正常讨论，再识别连续闲聊并提醒回到上线条件；对于研发与业务负责人的不同意见，它将分歧与抢话区分处理，并在接近结束时预警超时风险。
 
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-in-meeting.png" width="88%" alt="催催会中界面，展示实时字幕、会议进度、现场干预建议和待推进事项" /></div>
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png" width="96%" alt="催催识别会议偏题并给出回归议程建议" /></div>
+
+当讨论从不同意见走向僵持时，催催会将关键分歧和已确认信息沉淀到右侧的待推进事项中，帮助主持人决定是继续收敛、采纳建议，还是暂存到会后再处理。
+
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-decision-intervention.png" width="96%" alt="催催识别关键决策并提示补齐负责人和下一步" /></div>
 
 ## 会后：基于讨论证据复盘效率，把结论接成行动
 

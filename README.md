@@ -4,6 +4,10 @@
 
 公网演示：<https://cuicui.iotaceti.top>
 
+![催催识别会议偏题并进行实时干预](https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png)
+
+Hackathon 作品详情与完整截图：[HACKATHON_PROJECT_DETAIL.md](./HACKATHON_PROJECT_DETAIL.md)
+
 站点无需输入访问密码，打开首页或加入链接即可直接体验。浏览器会自动获得无感签名会话，用于保护 OpenRouter 与讯飞接口；不设置额外的体验次数或时长限额。
 
 ## 两个入口
