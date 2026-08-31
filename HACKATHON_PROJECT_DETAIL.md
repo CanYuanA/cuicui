@@ -14,31 +14,25 @@
 
 这些结构化信息会成为催催会中理解讨论的“边界条件”：它知道本场会议应该讨论什么、还剩多少时间，也因此能区分正常发散与真正的跑题。对于想快速试用的用户，产品还提供单人模式，可通过切换角色模拟多人发言。
 
+### 会议计划｜先把目标、时长和议程说清楚
+
 <div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-meeting-plan.png" width="72%" alt="催催会前会议计划配置界面，包含会议主题、计划时长、会议类型、议程和参会角色" /></div>
 
 ## 会中：在问题还来得及改变时，进行分级干预
 
 催催通过实时语音听写持续获得带身份和时间的会议字幕，并将新发言与会议议程、剩余时间、已有提醒共同送入会中分析。它不会把每个信号都变成弹窗，而是使用 L0、L1、L2 的干预分级：首次偏题等低影响信号先静默记录；重复出现或需要主持人关注时给出轻提醒；明确的意见分歧、紧迫的时间风险等情况才升级为更醒目的加强提醒。
 
-每次提醒都围绕当前一段讨论生成：催催会标注检测到的问题、它可能对会议造成的影响、建议的下一步，以及可定位的字幕证据。主持人可以采纳建议、放入会后停车场或忽略，AI 不替团队拍板。以下三张图对应演示会议中依次出现的“偏题—分歧—形成决策”三个会中信号。
+每次提醒都围绕当前一段讨论生成：催催会标注检测到的问题、它可能对会议造成的影响、建议的下一步，以及可定位的字幕证据。主持人可以采纳建议、放入会后停车场或忽略，AI 不替团队拍板。下方动图依次展示演示会议中“偏题—分歧—形成决策”的三个会中信号；每一帧顶部均标明当前阶段和对应的处理方向。
 
-当讨论连续转向团建、餐厅等与上线评审无关的话题时，催催标记“闲聊偏题”，提示“建议会后再聊，先确认上线条件”，帮助主持人把讨论拉回当前议程。
-
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-topic-intervention.png" width="96%" alt="催催检测到闲聊偏题后，提示会后再聊并回到上线条件" /></div>
-
-当两位参会者对同一方案持明确相反立场时，催催标记“意见分歧”，提示双方分别说明各自成立条件，再由主持人明确决策标准。它识别的是有证据的分歧，而不会把正常的不同观点简单误判为抢话。
-
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-disagreement-intervention.png" width="96%" alt="催催识别对同一方案的意见分歧，并提示明确决策标准" /></div>
-
-当发布节奏、异常阈值和暂停条件已经确认时，催催标记“形成决策”，提示团队继续补齐负责人和时间点；已确认内容同步沉淀到右侧的待推进事项，帮助团队从共识进入执行。
-
-<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-decision-intervention.png" width="96%" alt="催催识别已形成的发布决策，并提示补齐负责人和时间点" /></div>
+<div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-inmeeting-flow.gif" width="96%" alt="催催会中干预流程动图：依次展示闲聊偏题、意见分歧与形成决策三种会中信号" /></div>
 
 ## 会后：基于讨论证据复盘效率，把结论接成行动
 
 结束会议后，催催基于本次转写和干预记录生成动态复盘，而不是套用泛化模板。复盘页会给出会议效率判断、实际与计划时长、干预次数和行动项数量，并通过时间轴回看偏题、分歧、抢话、超时等关键节点及其当时的讨论依据。
 
 为了帮助团队把“开完会”变成“能推进”，催催还提供会议质量五维雷达、摘要与明确结论、已形成决策、行动项、参会与发言情况以及可执行改进建议。决策和行动项只从有明确证据的讨论中提取；若负责人或时间尚未明确，系统会如实标记“待确认”，避免用 AI 编造的完整感掩盖真实的执行缺口。
+
+### 会议复盘｜沿时间轴回看关键节点，把结论接成行动
 
 <div align="center"><img src="https://raw.githubusercontent.com/CanYuanA/cuicui/dev/public/hackathon-meeting-review.png" width="72%" alt="催催会后效率复盘界面，展示效率评分、关键节点时间轴、会议质量雷达、结论和行动项" /></div>
 
